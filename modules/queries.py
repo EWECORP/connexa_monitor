@@ -512,3 +512,38 @@ LEFT JOIN cabe_r c
 WHERE c.u_prefijo_oc IS NULL
 ORDER BY t.f_alta_date DESC, t.c_proveedor;
 """)
+
+
+########### INDICES qeu ayudan al Control de Interfaces ###########
+"""
+-- Crear una vez por tabla controlada (idempotente)
+CREATE INDEX IF NOT EXISTS idx_base_productos_vigentes_fecha_extraccion ON src.base_productos_vigentes (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_base_stock_sucursal_fecha_extraccion     ON src.base_stock_sucursal (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t020_proveedor_fecha_extraccion          ON src.t020_proveedor (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_m_3_articulos_fecha_extraccion           ON src.m_3_articulos (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t050_articulos_fecha_extraccion          ON src.t050_articulos (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t051_articulos_sucursal_fecha_extraccion ON src.t051_articulos_sucursal (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t060_stock_fecha_extraccion              ON src.t060_stock (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t080_oc_cabe_fecha_extraccion            ON src.t080_oc_cabe (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t081_oc_deta_fecha_extraccion            ON src.t081_oc_deta (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t100_empresa_suc_fecha_extraccion        ON src.t100_empresa_suc (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t052_articulos_proveedor_fecha_extraccion ON src.t052_articulos_proveedor (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t710_estadis_oferta_folder_fecha_extraccion ON src.t710_estadis_oferta_folder (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t710_estadis_reposicion_fecha_extraccion ON src.t710_estadis_reposicion (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t117_compradores_fecha_extraccion        ON src.t117_compradores (fecha_extraccion);
+CREATE INDEX IF NOT EXISTS idx_t114_rubros_fecha_extraccion             ON src.t114_rubros (fecha_extraccion);
+
+CREATE INDEX IF NOT EXISTS idx_m_91_sucursales_f_proc ON src.m_91_sucursales (f_proc);
+CREATE INDEX IF NOT EXISTS idx_m_92_depositos_f_proc  ON src.m_92_depositos (f_proc);
+CREATE INDEX IF NOT EXISTS idx_m_93_sustitutos_f_proc ON src.m_93_sustitutos (f_proc);
+CREATE INDEX IF NOT EXISTS idx_m_94_alternativos_f_proc ON src.m_94_alternativos (f_proc);
+CREATE INDEX IF NOT EXISTS idx_m_95_sensibles_f_proc  ON src.m_95_sensibles (f_proc);
+CREATE INDEX IF NOT EXISTS idx_m_96_stock_seguridad_f_proc ON src.m_96_stock_seguridad (f_proc);
+
+CREATE INDEX IF NOT EXISTS idx_t702_est_vtas_por_articulo_f_venta           ON src.t702_est_vtas_por_articulo (f_venta);
+CREATE INDEX IF NOT EXISTS idx_t702_est_vtas_por_articulo_dbarrio_f_venta   ON src.t702_est_vtas_por_articulo_dbarrio (f_venta);
+
+CREATE INDEX IF NOT EXISTS idx_base_forecast_oc_demoradas_f_alta_sist ON src.base_forecast_oc_demoradas (f_alta_sist);
+
+
+"""

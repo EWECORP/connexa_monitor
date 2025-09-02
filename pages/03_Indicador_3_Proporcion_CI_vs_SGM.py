@@ -67,12 +67,12 @@ else:
         fig.add_bar(x=df_plot["mes"], y=df_plot["oc_totales_sgm"], name="OC totales SGM")
         fig.add_bar(x=df_plot["mes"], y=df_plot["oc_desde_ci"],   name="OC desde CI")
         fig.update_layout(title="OC por Mes (SGM total vs Originadas en CI)", barmode="group")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with col2:
         fig2 = px.line(df_plot, x="mes", y="proporcion_ci", title="Proporción CI vs Total SGM")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
 
     st.divider()
     with st.expander("CI con prefijo/sufijo sin cabecera en SGM (posibles pendientes) — detalle"):
@@ -80,7 +80,7 @@ else:
         if df_miss.empty:
             st.success("No se detectaron KIKKER con prefijo/sufijo sin cabecera en SGM en el rango.")
         else:
-            st.dataframe(df_miss, use_container_width=True, hide_index=True)
+            st.dataframe(df_miss, width="stretch", hide_index=True)
             st.download_button(
                 "Descargar CSV (CI sin cabecera)",
                 data=df_miss.to_csv(index=False).encode("utf-8"),

@@ -61,13 +61,13 @@ with tab_gen:
         col1, col2 = st.columns(2)
         with col1:
             fig = px.bar(sgm_m, x="mes", y="kikker_distintos", title="KIKKER distintos en SGM (originados en CONNEXA)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         with col2:
             fig2 = px.bar(sgm_m, x="mes", y="oc_sgm_distintas", title="OC SGM distintas (resultado)")
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
         st.caption("Comparar ambas curvas: deberían ser ~iguales si la relación es 1:1. Desvíos indican splitting/duplicaciones o diferencias de corte.")
-        st.dataframe(sgm_m, use_container_width=True, hide_index=True)
+        st.dataframe(sgm_m, width="stretch", hide_index=True)
 with tab_recon:
     sgm_d = fetch_sgm_detalle(desde, hasta)
     pg_m  = fetch_pg_kikker_mensual(desde, hasta)
@@ -96,21 +96,21 @@ with tab_recon:
         colA, colB = st.columns([1,2])
         with colA:
             st.subheader("KPIs de reconciliación")
-            st.dataframe(kpis, use_container_width=True, hide_index=True)
+            st.dataframe(kpis, width="stretch", hide_index=True)
             if not dup.empty:
                 st.metric("KIKKER con >1 OC SGM", int(dup.shape[0]))
         with colB:
             if not pg_m.empty:
                 fig = px.line(pg_m, x="mes", y="kikker_distintos_pg", title="KIKKER distintos en CONNEXA (PG)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
         st.divider()
         with st.expander("Duplicaciones en SGM (KIKKER → múltiples OC SGM)"):
-            st.dataframe(dup, use_container_width=True, hide_index=True)
+            st.dataframe(dup, width="stretch", hide_index=True)
 
         st.divider()
         with st.expander("Listado de reconciliación (KIKKER)"):
-            st.dataframe(recon[["kikker","estado"]], use_container_width=True, hide_index=True)
+            st.dataframe(recon[["kikker","estado"]], width="stretch", hide_index=True)
             st.download_button(
                 "Descargar CSV de reconciliación",
                 data=recon.to_csv(index=False).encode("utf-8"),
@@ -146,21 +146,21 @@ with tab_recon:
 #         colA, colB = st.columns([1,2])
 #         with colA:
 #             st.subheader("KPIs de reconciliación")
-#             st.dataframe(kpis, use_container_width=True, hide_index=True)
+#             st.dataframe(kpis, width="stretch", hide_index=True)
 #             if not dup.empty:
 #                 st.metric("KIKKER con >1 OC SGM", int(dup.shape[0]))
 #         with colB:
 #             if not pg_m.empty:
 #                 fig = px.line(pg_m, x="mes", y="kikker_distintos_pg", title="KIKKER distintos en CONNEXA (PG)")
-#                 st.plotly_chart(fig, use_container_width=True)
+#                 st.plotly_chart(fig, width="stretch")
 
 #         st.divider()
 #         with st.expander("Duplicaciones en SGM (KIKKER → múltiples OC SGM)"):
-#             st.dataframe(dup, use_container_width=True, hide_index=True)
+#             st.dataframe(dup, width="stretch", hide_index=True)
 
 #         st.divider()
 #         with st.expander("Listado de reconciliación (KIKKER)"):
-#             st.dataframe(recon[["kikker","estado"]], use_container_width=True, hide_index=True)
+#             st.dataframe(recon[["kikker","estado"]], width="stretch", hide_index=True)
 #             st.download_button(
 #                 "Descargar CSV de reconciliación",
 #                 data=recon.to_csv(index=False).encode("utf-8"),

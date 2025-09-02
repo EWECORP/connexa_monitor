@@ -26,6 +26,6 @@ rk = fetch_ranking(desde, hasta, topn=topn)
 col1, col2 = st.columns([2,1])
 with col1:
     fig = px.bar(rk.sort_values("oc_total"), x="oc_total", y="c_comprador", orientation="h", title="Top Compradores por #OC (rango)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 with col2:
-    st.dataframe(rk, use_container_width=True, hide_index=True)
+    st.dataframe(rk, width="stretch", hide_index=True)

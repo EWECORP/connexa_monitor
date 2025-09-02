@@ -78,12 +78,12 @@ else:
         fig.add_bar(x=df_plot["mes"], y=df_plot["prov_totales_sgm"], name="Proveedores totales SGM")
         fig.add_bar(x=df_plot["mes"], y=df_plot["prov_desde_ci"],   name="Proveedores CI → SGM")
         fig.update_layout(title="Proveedores por Mes (SGM total vs desde CI)", barmode="group")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with c2:
         fig2 = px.line(df_plot, x="mes", y="proporcion_ci_prov", title="Proporción de Proveedores CI vs Totales SGM")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
 
     st.divider()
     st.subheader("Ranking de Proveedores CI (por #OC y Bultos)")
@@ -101,9 +101,9 @@ else:
             figr = px.bar(rk.head(20).sort_values("oc_distintas"),
                             x="oc_distintas", y="c_proveedor", orientation="h",
                             title="Top Proveedores por #OC CI → SGM")
-            st.plotly_chart(figr, use_container_width=True)
+            st.plotly_chart(figr, width="stretch")
         with colr2:
-            st.dataframe(rk.head(20), use_container_width=True, hide_index=True)
+            st.dataframe(rk.head(20), width="stretch", hide_index=True)
             st.download_button(
                 "Descargar Ranking (CSV)",
                 data=rk.to_csv(index=False).encode("utf-8"),
@@ -117,7 +117,7 @@ else:
         if miss.empty:
             st.success("No se detectaron proveedores CI sin cabecera en SGM en el rango.")
         else:
-            st.dataframe(miss, use_container_width=True, hide_index=True)
+            st.dataframe(miss, width="stretch", hide_index=True)
             st.download_button(
                 "Descargar CSV (pendientes)",
                 data=miss.to_csv(index=False).encode("utf-8"),

@@ -47,17 +47,17 @@ df = fetch_oc_generadas(desde, hasta, usar_nombres=usar_nombres)
 st.caption(f"{len(df)} filas agregadas (mes-comprador-proveedor)")
 
 with st.expander("Ver tabla agregada"):
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
 
 # Totales por mes
 tot_mes = df.groupby("mes", as_index=False).agg(total_oc=("total_oc","sum"), total_bultos=("total_bultos","sum"))
 col1, col2 = st.columns(2)
 with col1:
     fig1 = px.bar(tot_mes, x="mes", y="total_oc", title="Total de OC por Mes")
-    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig1, width="stretch")
 with col2:
     fig2 = px.line(tot_mes, x="mes", y="total_bultos", title="Total de Bultos por Mes")
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width="stretch")
 
 # Ranking de compradores
 rk = fetch_ranking(desde, hasta, topn=10, usar_nombres=usar_nombres)
@@ -65,7 +65,11 @@ col3, col4 = st.columns([2,1])
 with col3:
     y_col = "comprador" if "comprador" in rk.columns else "c_comprador"
     fig3 = px.bar(rk.sort_values("oc_total"), x="oc_total", y=y_col, orientation="h", title="Top Compradores por #OC")
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width="stretch")
 with col4:
     st.metric("OC (rango)", value=int(tot_mes["total_oc"].sum()))
     st.metric("Bultos (rango)", value=float(tot_mes["total_bultos"].sum()))
+
+
+# st.plotly_chart(fig3, width="stretch") quieres que el gráfico o tabla se estire al ancho del contenedor
+# Para diseños compactos width="content"   más compacto, útil si estás trabajando con columnas estrechas o deseas un diseño más contenido.
