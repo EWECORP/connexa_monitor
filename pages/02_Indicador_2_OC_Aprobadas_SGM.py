@@ -51,7 +51,7 @@ def fetch_sgm_dup(desde, hasta):
         df = pd.read_sql(SQL_SGM_KIKKER_DUP, con, params={"desde": desde, "hasta": hasta})
     return df
 
-tab_gen, tab_recon, tab_apr = st.tabs(["Generadas (mensual)", "Reconciliación por KIKKER", "Aprobadas (pendiente)"])
+tab_gen, tab_recon, tab_apr = st.tabs(["Generadas (mensual)", "Reconciliación por Nro Interno", "Aprobadas (pendiente)"])
 
 with tab_gen:
     sgm_m = fetch_sgm_mensual(desde, hasta)
@@ -60,7 +60,7 @@ with tab_gen:
     else:
         col1, col2 = st.columns(2)
         with col1:
-            fig = px.bar(sgm_m, x="mes", y="kikker_distintos", title="KIKKER distintos en SGM (originados en CONNEXA)")
+            fig = px.bar(sgm_m, x="mes", y="kikker_distintos", title="CONNEXA vs. SGM (NIPs)")
             st.plotly_chart(fig, width="stretch")
         with col2:
             fig2 = px.bar(sgm_m, x="mes", y="oc_sgm_distintas", title="OC SGM distintas (resultado)")
@@ -91,7 +91,7 @@ with tab_recon:
             "left_only": "SGM sin CONNEXA",
             "right_only": "CONNEXA sin SGM",
         })
-        kpis = recon["estado"].value_counts().to_frame("kikkers").reset_index().rename(columns={"index":"estado"})
+        kpis = recon["estado"].value_counts().to_frame("NIPs").reset_index().rename(columns={"index":"estado"})
 
         colA, colB = st.columns([1,2])
         with colA:
@@ -101,7 +101,7 @@ with tab_recon:
                 st.metric("KIKKER con >1 OC SGM", int(dup.shape[0]))
         with colB:
             if not pg_m.empty:
-                fig = px.line(pg_m, x="mes", y="kikker_distintos_pg", title="KIKKER distintos en CONNEXA (PG)")
+                fig = px.line(pg_m, x="mes", y="kikker_distintos_pg", title="PEDIDOS distintos en CONNEXA (PG)")
                 st.plotly_chart(fig, width="stretch")
 
         st.divider()

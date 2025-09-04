@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 from modules.db import get_pg_engine
 from modules.ui import render_header, make_date_filters
-from modules.queries import SQL_RANKING_COMPRADORES
+from modules.queries import SQL_RANKING_COMPRADORES, SQL_RANKING_COMPRADORES_NOMBRE
 import plotly.express as px
 
 st.set_page_config(page_title="Indicador 5 — Ranking Compradores", page_icon="🏆", layout="wide")
@@ -17,15 +17,43 @@ ttl = int(os.getenv("CACHE_TTL_SECONDS","300"))
 def fetch_ranking(desde, hasta, topn=20):
     eng = get_pg_engine()
     with eng.connect() as con:
-        df = pd.read_sql(SQL_RANKING_COMPRADORES, con, params={"desde": desde, "hasta": hasta, "topn": topn})
+        df = pd.read_sql(SQL_RANKING_COMPRADORES_NOMBRE, con, params={"desde": desde, "hasta": hasta, "topn": topn})
+    # tipos amigables
+    df["oc_total"] = pd.to_numeric(df["oc_total"], errors="coerce").astype("Int64")
+    df["bultos_total"] = pd.to_numeric(df["bultos_total"], errors="coerce")
     return df
 
-topn = st.slider("Top N", 5, 50, 20, step=5)
-rk = fetch_ranking(desde, hasta, topn=topn)
+col_filtros = st.columns([1,1,2])
+with col_filtros[0]:
+    topn = st.slider("Top N", min_value=5, max_value=50, value=20, step=5)
+with col_filtros[1]:
+    ordenar_por = st.selectbox("Ordenar por", options=["oc_total", "bultos_total"], index=0)
 
-col1, col2 = st.columns([2,1])
-with col1:
-    fig = px.bar(rk.sort_values("oc_total"), x="oc_total", y="c_comprador", orientation="h", title="Top Compradores por #OC (rango)")
-    st.plotly_chart(fig, width="stretch")
-with col2:
-    st.dataframe(rk, width="stretch", hide_index=True)
+df = fetch_ranking(desde, hasta, topn=topn)
+
+if df.empty:
+    st.info("No hay datos para el rango seleccionado.")
+else:
+    # Ordenamiento para el gráfico
+    df_plot = df.sort_values(ordenar_por, ascending=True)
+    fig = px.bar(
+        df_plot,
+        x=ordenar_por,
+        y="comprador",
+        orientation="h",
+        title=f"Top {topn} Compradores por {ordenar_por.replace('_',' ').title()}",
+        text=ordenar_por,
+    )
+    fig.update_layout(yaxis_title="", xaxis_title=ordenar_por.replace("_", " ").title())
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Detalle")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Descargar CSV",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name="ranking_compradores_con_nombres.csv",
+        mime="text/csv",
+    )
+
+st.caption("Fuente: mon.v_oc_generadas_mensual_ext (JOIN a src.m_9_compradores).")
