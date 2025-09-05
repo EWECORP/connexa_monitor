@@ -25,6 +25,7 @@ TABLAS_FECHAS_ESTANDAR = [
     "t060_stock", "t080_oc_cabe", "t081_oc_deta", "t100_empresa_suc",
     "t052_articulos_proveedor", "t710_estadis_oferta_folder",
     "t710_estadis_reposicion", "t117_compradores", "t114_rubros",
+    "base_forecast_oc_demoradas",
 ]
 tablas_dict_1 = {t: "fecha_extraccion" for t in TABLAS_FECHAS_ESTANDAR}
 
@@ -37,7 +38,6 @@ tablas_dict_2 = {
     "m_96_stock_seguridad": "f_proc",
     "t702_est_vtas_por_articulo": "f_venta",
     "t702_est_vtas_por_articulo_dbarrio": "f_venta",
-    "base_forecast_oc_demoradas": "f_alta_sist",
 }
 TABLAS_TOTAL = {**tablas_dict_1, **tablas_dict_2}
 
