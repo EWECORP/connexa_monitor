@@ -25,7 +25,7 @@ TABLAS_FECHAS_ESTANDAR = [
     "t060_stock", "t080_oc_cabe", "t081_oc_deta", "t100_empresa_suc",
     "t052_articulos_proveedor", "t710_estadis_oferta_folder",
     "t710_estadis_reposicion", "t117_compradores", "t114_rubros",
-    "base_forecast_oc_demoradas",
+    "base_forecast_oc_demoradas","t080_oc_pendientes",
 ]
 tablas_dict_1 = {t: "fecha_extraccion" for t in TABLAS_FECHAS_ESTANDAR}
 
