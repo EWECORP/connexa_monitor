@@ -19,6 +19,17 @@ def get_pg_engine():
     return create_engine(uri, pool_pre_ping=True)
 
 @lru_cache(maxsize=1)
+def get_pgp_engine():
+    host = os.getenv("PGP_HOST","186.158.182.54")
+    port = os.getenv("PG_PPORT","5432")
+    db   = os.getenv("PGP_DB","connexa_platform")
+    user = os.getenv("PGP_USER","postgres")
+    pw   = os.getenv("PGP_PASSWORD","postgres")
+    uri  = f"postgresql+psycopg2://{user}:{pw}@{host}:{port}/{db}"
+    return create_engine(uri, pool_pre_ping=True)
+
+
+@lru_cache(maxsize=1)
 def get_sqlserver_engine():
     # Opcional: habilitar solo si corresponde (Indicadores SGM)
     import urllib.parse
