@@ -25,7 +25,7 @@ TABLAS_FECHAS_ESTANDAR = [
     "t060_stock", "t080_oc_cabe", "t081_oc_deta", "t100_empresa_suc",
     "t052_articulos_proveedor", "t710_estadis_oferta_folder",
     "t710_estadis_reposicion", "t117_compradores", "t114_rubros",
-    "base_forecast_oc_demoradas","t080_oc_pendientes",
+    "base_forecast_oc_demoradas","t080_oc_pendientes","base_transferencias_pendientes",
 ]
 tablas_dict_1 = {t: "fecha_extraccion" for t in TABLAS_FECHAS_ESTANDAR}
 
@@ -92,7 +92,7 @@ else:
         atraso_val = None if pd.isna(atraso) else int(atraso)
         # Toda la fila en rojo si falta la última fecha
         if pd.isna(val):
-            return ["background-color: #ffe0e0"] * len(row)
+            return ["background-color: #ff0000; color: white"] * len(row)
         # Toda la fila en amarillo si supera el umbral de atraso
         if atraso_val is not None and atraso_val > UMBRAL_ATRASO_DIAS:
             return ["background-color: #fff4cc; color: black"] * len(row)
