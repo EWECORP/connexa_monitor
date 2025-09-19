@@ -283,10 +283,10 @@ if process:
 
             st.markdown("---")
             st.subheader("Detalle de proveedores encontrados (vinculados o ya existentes)")
-            st.dataframe(report["linked_list"], use_container_width=True)
+            st.dataframe(report["linked_list"], width='stretch')
 
             if report["missing"] > 0:
                 st.subheader("No encontrados en catálogo (revisar fnd_supplier.ext_code)")
-                st.dataframe(report["missing_list"], use_container_width=True)
+                st.dataframe(report["missing_list"], width='stretch')
 
             st.info("La relación existente se omite gracias a la restricción única (buyer_id, supplier_id) y ON CONFLICT DO NOTHING.")

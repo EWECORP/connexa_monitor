@@ -45,10 +45,10 @@ else:
         text=ordenar_por,
     )
     fig.update_layout(yaxis_title="", xaxis_title=ordenar_por.replace("_", " ").title())
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     st.subheader("Detalle")
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
     st.download_button(
         "Descargar CSV",
         data=df.to_csv(index=False).encode("utf-8"),

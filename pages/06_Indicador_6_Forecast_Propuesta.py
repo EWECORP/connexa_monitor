@@ -94,10 +94,10 @@ else:
     fig.add_bar(x=conv_plot["mes"], y=conv_plot["ejecuciones"], name="Forecasts completados")
     fig.add_bar(x=conv_plot["mes"], y=conv_plot["propuestas"], name="Propuestas")
     fig.update_layout(barmode="group", title="Ejecuciones y Propuestas por mes")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     fig2 = px.line(conv_plot, x="mes", y="conversion", title="Conversión mensual (Propuestas / Forecasts)")
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width='stretch')
 
 st.divider()
 
@@ -111,11 +111,11 @@ else:
     with col_a:
         fig_c = px.bar(mensual, x="mes", y="propuestas", color="comprador",
                        title="#Propuestas por comprador y mes", barmode="stack")
-        st.plotly_chart(fig_c, use_container_width=True)
+        st.plotly_chart(fig_c, width='stretch')
     with col_b:
         fig_t = px.box(mensual, x="comprador", y="p50_ajuste_min",
                        title="Dispersión P50 de ajuste (min) por comprador")
-        st.plotly_chart(fig_t, use_container_width=True)
+        st.plotly_chart(fig_t, width='stretch')
 
 st.divider()
 
@@ -128,8 +128,8 @@ if rk.empty:
 else:
     fig_r = px.bar(rk.sort_values("propuestas"), x="propuestas", y="comprador",
                    orientation="h", title=f"Top {topn} por #Propuestas")
-    st.plotly_chart(fig_r, use_container_width=True)
-    st.dataframe(rk, use_container_width=True, hide_index=True)
+    st.plotly_chart(fig_r, width='stretch')
+    st.dataframe(rk, width='stretch', hide_index=True)
     st.download_button("Descargar ranking (CSV)", rk.to_csv(index=False).encode("utf-8"),
                        file_name="ranking_compradores_forecast_propuesta.csv", mime="text/csv")
 
@@ -141,13 +141,13 @@ if est.empty:
     st.info("Sin estados para mostrar.")
 else:
     fig_e = px.pie(est, names="pp_status", values="propuestas", title="Distribución de estados")
-    st.plotly_chart(fig_e, use_container_width=True)
-    st.dataframe(est, use_container_width=True, hide_index=True)
+    st.plotly_chart(fig_e, width='stretch')
+    st.dataframe(est, width='stretch', hide_index=True)
 
 st.divider()
 
 # ---- Detalle / export ----
 with st.expander("Detalle (exportable)"):
-    st.dataframe(det, use_container_width=True, hide_index=True)
+    st.dataframe(det, width='stretch', hide_index=True)
     st.download_button("Descargar detalle (CSV)", det.to_csv(index=False).encode("utf-8"),
                        file_name="detalle_forecast_propuesta.csv", mime="text/csv")

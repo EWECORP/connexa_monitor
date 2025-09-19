@@ -220,7 +220,7 @@ WHERE f_alta_sist >= :desde
   AND f_alta_sist  < (:hasta + INTERVAL '1 day')
 """)
 
-# set de KIKKER en SGM
+# set de NRO C_COMPRA_KIKKER en SGM
 SQL_C_COMPRA_KIKKER_GEN = text("""
     SELECT DISTINCT c_compra_kikker AS kikker
     FROM public.t080_oc_precarga_kikker

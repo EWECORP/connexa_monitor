@@ -344,7 +344,7 @@ def main():
         st.warning("No se encontraron líneas en la vista para la combinación seleccionada.")
     else:
         kpi_triplet(df_view, label_prefix="Propuesta")
-        st.dataframe(df_view, use_container_width=True)
+        st.dataframe(df_view, width='stretch')
         st.download_button("Descargar CSV - Vista Connexa", data=df_view.to_csv(index=False).encode("utf-8"), file_name=f"connexa_view_{supplier}_{proposal}.csv", mime="text/csv")
 
     # 3) Precarga en diarco_data (consolidación por ARTÍCULO / SUCURSAL)
@@ -362,7 +362,7 @@ def main():
         c1, c2 = st.columns((2,1))
         with c1:
             st.subheader("Detalle consolidado por Artículo/Sucursal")
-            st.dataframe(df_consol, use_container_width=True)
+            st.dataframe(df_consol, width='stretch')
         with c2:
             st.metric("Total bultos/kilos (precarga)", f"{int(df_consol['q_bultos_kilos_diarco'].sum()):,}")
         st.download_button("Descargar CSV - Precarga consolidada", data=df_consol.to_csv(index=False).encode("utf-8"), file_name=f"precarga_consolidada_{proposal}.csv", mime="text/csv")
@@ -378,13 +378,13 @@ def main():
             if df_cur.empty:
                 st.warning("Sin registros en T080 para la propuesta (posible ya consolidada/transferida).")
             else:
-                st.dataframe(df_cur, use_container_width=True)
+                st.dataframe(df_cur, width='stretch')
                 st.download_button("Descargar CSV - T080", data=df_cur.to_csv(index=False).encode("utf-8"), file_name=f"t080_precarga_{proposal}.csv", mime="text/csv")
         with tabs[1]:
             if df_hist.empty:
                 st.info("Sin registros en histórico para esta propuesta aún.")
             else:
-                st.dataframe(df_hist, use_container_width=True)
+                st.dataframe(df_hist, width='stretch')
                 st.download_button("Descargar CSV - T874", data=df_hist.to_csv(index=False).encode("utf-8"), file_name=f"t874_hist_{proposal}.csv", mime="text/csv")
         with tabs[2]:
             df_oc = pd.concat([df_cur, df_hist], ignore_index=True)
@@ -395,7 +395,7 @@ def main():
                 # Filtrar combinaciones válidas
                 df_oc_valid = df_oc[(df_oc["u_prefijo_oc"].notna()) & (df_oc["u_sufijo_oc"].notna()) & (df_oc["u_prefijo_oc"] != "") & (df_oc["u_sufijo_oc"] != "")]
                 df_oc_valid = df_oc_valid[["c_proveedor", "c_compra_kikker", "oc_generada"]].drop_duplicates().sort_values(["c_proveedor", "oc_generada"]) 
-                st.dataframe(df_oc_valid, use_container_width=True)
+                st.dataframe(df_oc_valid, width='stretch')
                 st.download_button("Descargar CSV - OCs generadas", data=df_oc_valid.to_csv(index=False).encode("utf-8"), file_name=f"ocs_generadas_{proposal}.csv", mime="text/csv")
 
     # 5) Estado global / semáforos
