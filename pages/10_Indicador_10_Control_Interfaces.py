@@ -23,10 +23,11 @@ TABLAS_FECHAS_ESTANDAR = [
     "base_productos_vigentes", "base_stock_sucursal", "t020_proveedor",
     "m_3_articulos", "t050_articulos", "t051_articulos_sucursal",
     "t060_stock", "t080_oc_cabe", "t081_oc_deta", "t100_empresa_suc",
-    "t052_articulos_proveedor", "t710_estadis_oferta_folder",
+    "t052_articulos_proveedor", "t710_estadis_oferta_folder", "t710_estadis_precios",
     "t710_estadis_reposicion", "t117_compradores", "t114_rubros",
     "base_forecast_oc_demoradas","t080_oc_pendientes","base_transferencias_pendientes",
     "t020_proveedor_dias_entrega_deta","t020_proveedor_dias_entrega_cabe"
+
 ]
 tablas_dict_1 = {t: "fecha_extraccion" for t in TABLAS_FECHAS_ESTANDAR}
 
@@ -39,6 +40,7 @@ tablas_dict_2 = {
     "m_96_stock_seguridad": "f_proc",
     "t702_est_vtas_por_articulo": "f_venta",
     "t702_est_vtas_por_articulo_dbarrio": "f_venta",
+    "base_ventas_extendida": "fecha_procesado"
 }
 TABLAS_TOTAL = {**tablas_dict_1, **tablas_dict_2}
 
