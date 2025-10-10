@@ -66,7 +66,7 @@ else:
     df["ultima_fecha_extraccion_local"] = pd.to_datetime(
         df["ultima_fecha_extraccion"], errors="coerce"
     ).dt.tz_localize(None)
-    df["atraso_dias"] = (hoy - df["ultima_fecha_extraccion_local"].dt.floor("D")).dt.days
+    df["atraso_dias"] = (hoy - df["ultima_fecha_extraccion_local"].dt.floor("D")).dt.days # type: ignore
     df.loc[df["ultima_fecha_extraccion_local"].isna(), "atraso_dias"] = pd.NA
 
     total_tablas = len(df)
@@ -126,9 +126,9 @@ else:
             st.warning("No se pudo recuperar la serie de días para la tabla seleccionada.")
         else:
             fig = px.bar(trend, x="fecha", y="cantidad", title=f"{sel_tabla} — registros por día")
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
             with st.expander("Ver datos"):
-                st.dataframe(trend, width='stretch', hide_index=True)
+                st.dataframe(trend, use_container_width=True, hide_index=True)
 
     with st.expander("Sugerencias de índices (copiar/pegar en PostgreSQL)"):
         stmts = sugerir_indices(TABLAS_TOTAL, schema="src")
