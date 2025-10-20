@@ -126,9 +126,9 @@ else:
             st.warning("No se pudo recuperar la serie de días para la tabla seleccionada.")
         else:
             fig = px.bar(trend, x="fecha", y="cantidad", title=f"{sel_tabla} — registros por día")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             with st.expander("Ver datos"):
-                st.dataframe(trend, use_container_width=True, hide_index=True)
+                st.dataframe(trend, width="stretch", hide_index=True)
 
     with st.expander("Sugerencias de índices (copiar/pegar en PostgreSQL)"):
         stmts = sugerir_indices(TABLAS_TOTAL, schema="src")
