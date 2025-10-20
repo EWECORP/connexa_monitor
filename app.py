@@ -7,7 +7,7 @@ from modules.queries import ensure_mon_objects
 
 st.set_page_config(page_title="CONNEXA Monitor", page_icon="📊", layout="wide")
 
-render_header("CONNEXA Monitor — Tablero de Control")
+render_header("CONNEXA Tool Kit — Tablero de Control - Herramientas de Monitoreo - Utilitarios")
 
 st.sidebar.success("Usen el menú de la izquierda para navegar por los indicadores.")
 
