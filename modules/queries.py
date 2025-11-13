@@ -6,13 +6,47 @@ from sqlalchemy import text
 #  MODULO STOCK
 #--------------------------------------------------
 QRY_STOCK_SUCURSAL = """
-SELECT ...
-FROM src.base_stock_sucursal;
+  SELECT codigo_articulo, codigo_sucursal, codigo_proveedor, precio_venta, precio_costo, factor_venta, ultimo_ingreso, fecha_ultimo_ingreso, 
+      fecha_ultima_venta, m_vende_por_peso, venta_unidades_1q, venta_unidades_2q, venta_mes_unidades, venta_mes_valorizada, dias_stock, 
+      fecha_stock, stock, transfer_pendiente, pedido_pendiente, promocion, lote, validez_lote, stock_reserva, validez_promocion, 
+      q_dias_stock, q_dias_sobre_stock, i_lista_calculado, pedido_sgm, importe_minimo, bultos_minimo, dias_preparacion, 
+      fuente_origen, fecha_extraccion, estado_sincronizacion
+    FROM src.base_stock_sucursal;
 """
 
 QRY_PRODUCTOS_VIGENTES = """
-SELECT ...
-FROM src.base_productos_vigentes;
+  SELECT 
+      c_sucu_empr,
+      c_articulo,
+      c_proveedor_primario,
+      abastecimiento,
+      cod_cd,
+      habilitado,
+      fecha_registro,
+      fecha_baja,
+      m_vende_por_peso,
+      unid_transferencia,
+      q_unid_transferencia,
+      pedido_min,
+      frente_lineal,
+      capacid_gondola,
+      stock_minimo,
+      cod_comprador,
+      promocion,
+      active_for_purchase,
+      active_for_sale,
+      active_on_mix,
+      delivered_id,
+      product_base_id,
+      own_production,
+      q_factor_compra,
+      full_capacity_pallet,
+      number_of_layers,
+      number_of_boxes_per_layer,
+      fuente_origen,
+      fecha_extraccion,
+      estado_sincronizacion
+  FROM src.base_productos_vigentes;
 """
 
 QRY_VENTAS_30D = """
@@ -27,6 +61,10 @@ WHERE fecha >= CURRENT_DATE - INTERVAL '30 days'
 GROUP BY
     codigo_articulo,
     sucursal;
+"""
+QRY_MV_STOCK_CARTERA_30D = """
+SELECT *
+FROM datamart.mv_stock_cartera_30d;
 """
 
 
@@ -53,6 +91,16 @@ SELECT base.mes,
   FROM base
 GROUP BY base.mes, base.c_comprador, base.c_proveedor
 ORDER BY base.mes, base.c_comprador, base.c_proveedor;
+"""
+
+QRY_COMPPRADORES = """
+SELECT cod_comprador, n_comprador
+FROM src.m_9_compradores;
+"""
+
+QRY_PROVEEDORES = """
+SELECT c_proveedor, n_proveedor
+FROM src.m_10_proveedores;
 """
 
 # Vista extendida (nombres de comprador/proveedor)
