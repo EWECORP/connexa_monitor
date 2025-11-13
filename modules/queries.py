@@ -1,6 +1,35 @@
 
 from sqlalchemy import text
 
+
+# ------------------------------------------------
+#  MODULO STOCK
+#--------------------------------------------------
+QRY_STOCK_SUCURSAL = """
+SELECT ...
+FROM src.base_stock_sucursal;
+"""
+
+QRY_PRODUCTOS_VIGENTES = """
+SELECT ...
+FROM src.base_productos_vigentes;
+"""
+
+QRY_VENTAS_30D = """
+SELECT
+    codigo_articulo,
+    sucursal AS codigo_sucursal,
+    SUM(unidades) AS unidades_30d,
+    COUNT(DISTINCT fecha) AS dias_con_venta,
+    SUM(unidades) / 30.0 AS venta_promedio_diaria_30d
+FROM src.base_ventas_extendida
+WHERE fecha >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY
+    codigo_articulo,
+    sucursal;
+"""
+
+
 # --- DDL de vistas y soportes (idempotente) ---
 DDL_VIEW_OC_GENERADAS_BASE = """
 CREATE SCHEMA IF NOT EXISTS mon;

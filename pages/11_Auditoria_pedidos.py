@@ -282,6 +282,20 @@ def kpi_triplet(df: pd.DataFrame, label_prefix: str):
         total_amount = pd.to_numeric(df.get("total_amount"), errors="coerce").fillna(0).sum()
         st.metric(f"{label_prefix} • Importe", f"{round(float(total_amount),2):,}")
 
+def normalizar_columnas_uuid(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convierte a string las columnas que contienen UUIDs para que sean compatibles con PyArrow/Streamlit.
+    """
+    # ajustar la lista a los nombres reales
+    uuid_cols = ["proposal_id", "proposal_detail_id", "id"]
+
+    for col in uuid_cols:
+        if col in df.columns:
+            # Si hay UUID() adentro, esto los convierte a str sin problemas
+            df[col] = df[col].astype(str)
+
+    return df
+
 # =========================
 # App
 # =========================
@@ -391,6 +405,8 @@ def main():
             if df_oc.empty:
                 st.info("Aún no se observan OCs asignadas en SGM.")
             else:
+                df_oc = normalizar_columnas_uuid(df_oc)
+                
                 df_oc["oc_generada"] = df_oc[["u_prefijo_oc", "u_sufijo_oc"]].fillna("").astype(str).agg("-".join, axis=1)
                 # Filtrar combinaciones válidas
                 df_oc_valid = df_oc[(df_oc["u_prefijo_oc"].notna()) & (df_oc["u_sufijo_oc"].notna()) & (df_oc["u_prefijo_oc"] != "") & (df_oc["u_sufijo_oc"] != "")]
