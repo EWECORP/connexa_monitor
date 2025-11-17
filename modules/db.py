@@ -1,7 +1,7 @@
 
 import os
 from functools import lru_cache
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 # Para SQL Server vía pyodbc/ODBC Driver 18
 import urllib.parse
 import psycopg2
@@ -12,9 +12,15 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
+dotenv_path = find_dotenv()
+print(f"Usando archivo dotenv en: {dotenv_path}")
+
+
 load_dotenv()
 print (os.getenv("PG_HOST","no-pg-host"))
 print (os.getenv("SQL_SERVER","no-SQL-host"))
+print(os.getenv("PGP_HOST","no-pgp-host")   )
+print(os.getenv("PGP_DB","no-pgp-db")   )
 
 @lru_cache(maxsize=1)
 def get_pg_engine():
@@ -28,13 +34,14 @@ def get_pg_engine():
 
 @lru_cache(maxsize=1)
 def get_pgp_engine():
-    host = os.getenv("PGP_HOST","186.158.182.54")
-    port = os.getenv("PG_PPORT","5432")
-    db   = os.getenv("PGP_DB","connexa_platform")
-    user = os.getenv("PGP_USER","postgres")
-    pw   = os.getenv("PGP_PASSWORD","postgres")
-    uri  = f"postgresql+psycopg2://{user}:{pw}@{host}:{port}/{db}"
-    return create_engine(uri, pool_pre_ping=True)
+    hostp = os.getenv("PGP_HOST","186.158.182.127")
+    portp = os.getenv("PG_PPORT","5432")
+    dbp   = os.getenv("PGP_DB","connexa_platform_ms")
+    userp = os.getenv("PGP_USER","postgres")
+    pwp  = os.getenv("PGP_PASSWORD","postgres")
+    urip  = f"postgresql+psycopg2://{userp}:{pwp}@{hostp}:{portp}/{dbp}"
+    print("Connecting to PGP:", urip)
+    return create_engine(urip, pool_pre_ping=True)
 
 @lru_cache(maxsize=1)
 def get_conn_diarco_data():

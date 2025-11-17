@@ -73,24 +73,24 @@ DDL_VIEW_OC_GENERADAS_BASE = """
 CREATE SCHEMA IF NOT EXISTS mon;
 
 CREATE OR REPLACE VIEW mon.v_oc_generadas_mensual
-AS
-WITH base AS (
-        SELECT date_trunc('month'::text, (t080_oc_precarga_kikker.f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))::date AS mes,
-          t080_oc_precarga_kikker.c_comprador,
-          t080_oc_precarga_kikker.c_proveedor,
-          t080_oc_precarga_kikker.c_compra_kikker,
-          COALESCE(t080_oc_precarga_kikker.q_bultos_kilos_diarco, 0::numeric) AS q_bultos
-          FROM t080_oc_precarga_kikker
-        WHERE t080_oc_precarga_kikker.f_alta_sist IS NOT NULL
-      )
-SELECT base.mes,
-  base.c_comprador,
-  base.c_proveedor,
-  count(DISTINCT base.c_compra_kikker) AS total_oc,
-  sum(base.q_bultos) AS total_bultos
-  FROM base
-GROUP BY base.mes, base.c_comprador, base.c_proveedor
-ORDER BY base.mes, base.c_comprador, base.c_proveedor;
+ AS
+ WITH base AS (
+         SELECT date_trunc('month'::text, (t080_oc_precarga_connexa.f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))::date AS mes,
+            t080_oc_precarga_connexa.c_comprador,
+            t080_oc_precarga_connexa.c_proveedor,
+            t080_oc_precarga_connexa.c_compra_connexa,
+            COALESCE(t080_oc_precarga_connexa.q_bultos_kilos_diarco, 0::numeric) AS q_bultos
+           FROM t080_oc_precarga_connexa
+          WHERE t080_oc_precarga_connexa.f_alta_sist IS NOT NULL
+        )
+ SELECT base.mes,
+    base.c_comprador,
+    base.c_proveedor,
+    count(DISTINCT base.c_compra_connexa) AS total_oc,
+    sum(base.q_bultos) AS total_bultos
+   FROM base
+  GROUP BY base.mes, base.c_comprador, base.c_proveedor
+  ORDER BY base.mes, base.c_comprador, base.c_proveedor;
 """
 
 QRY_COMPPRADORES = """
@@ -212,17 +212,19 @@ LIMIT :topn;
 """)
 
 # PostgreSQL (CONNEXA)
+
 SQL_PG_KIKKER_MENSUAL = text("""
 SELECT
   date_trunc('month', (f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'))::date AS mes,
-  COUNT(DISTINCT c_compra_kikker)         AS kikker_distintos_pg,
+  COUNT(DISTINCT c_compra_connexa)         AS kikker_distintos_pg,
   SUM(COALESCE(q_bultos_kilos_diarco,0))  AS total_bultos_pg
-FROM public.t080_oc_precarga_kikker
+FROM public.t080_oc_precarga_connexa
 WHERE f_alta_sist >= :desde 
   AND f_alta_sist  < (:hasta  + INTERVAL '1 day')
 GROUP BY 1
 ORDER BY 1;
 """)
+
 
 # SQL Server (SGM) — mensual dual (KIKKER vs OC SGM)
 SQL_SGM_KIKKER_VS_OC_MENSUAL = text("""
@@ -299,8 +301,8 @@ WHERE f_alta_sist >= :desde
 
 # set de NRO C_COMPRA_KIKKER en SGM
 SQL_C_COMPRA_KIKKER_GEN = text("""
-    SELECT DISTINCT c_compra_kikker AS kikker
-    FROM public.t080_oc_precarga_kikker
+    SELECT DISTINCT c_compra_connexa AS kikker
+    FROM public.t080_oc_precarga_connexa
     WHERE f_alta_sist >= :desde AND f_alta_sist < :hasta_mas_1
 """)
 
@@ -636,64 +638,56 @@ def ensure_forecast_views(pg_engine):
 
 # Vista base: “aplana” FE + PP + estado y calcula métricas de tiempo
 DDL_V_FORECAST_PROPUESTA_BASE = """
-CREATE SCHEMA IF NOT EXISTS views;
+CREATE SCHEMA IF NOT EXISTS mon;
 
-CREATE OR REPLACE VIEW views.v_forecast_propuesta_base AS
-SELECT
-  fe.id                                        AS fe_id,
-  fe.start_execution                           AS fe_start,
-  fe.end_execution                             AS fe_end,
-  fe.last_execution                            AS fe_last,
-  fe."timestamp"                               AS fe_ts,
-  fe.supply_forecast_execution_id              AS fe_exec_id,
-  fe.supply_forecast_execution_schedule_id     AS fe_sched_id,
-  fe.ext_supplier_code                         AS ext_supplier_code,
-  fe.monthly_net_margin_in_millions            AS fe_net_margin_m,
-  fe.monthly_purchases_in_millions             AS fe_purchases_m,
-  fe.monthly_sales_in_millions                 AS fe_sales_m,
-  fe.sotck_days                                AS stock_days,               -- nota: 'sotck' tal como viene
-  fe.sotck_days_colors                         AS stock_days_colors,
-  fe.supplier_id                               AS fe_supplier_id,
-  fe.supply_forecast_execution_status_id       AS fe_status_id,
-  sfes.name                                    AS fe_status_name,
-  sfes.description                             AS fe_status_desc,
-  fe.contains_breaks                           AS contains_breaks,
-  fe.maximum_backorder_days                    AS max_backorder_days,
-  fe.otif                                      AS otif,
-  fe.total_products                            AS fe_total_products,
-  fe.total_units                               AS fe_total_units,
-  fe.supply_purchase_proposal_id               AS pp_id,
-  pp.closed_at                                 AS pp_closed_at,
-  pp.comments                                  AS pp_comments,
-  pp.open_at                                   AS pp_open_at,
-  pp.proposal_number                           AS pp_number,
-  pp.status                                    AS pp_status,
-  pp."timestamp"                               AS pp_ts,
-  pp.total_amount                              AS pp_total_amount,
-  pp.total_products                            AS pp_total_products,
-  pp.total_sites                               AS pp_total_sites,
-  pp.total_units                               AS pp_total_units,
-  pp.buyer_id                                  AS buyer_id,
-  pp.supplier_id                               AS pp_supplier_id,
-  pp.user_id                                   AS user_id,
-  pp.user_name                                 AS user_name,
+CREATE OR REPLACE VIEW mon.v_forecast_propuesta_base
+ AS
+ SELECT fe.id AS fe_id,
+    fe.start_execution AS fe_start,
+    fe.end_execution AS fe_end,
+    fe.last_execution AS fe_last,
+    fe."timestamp" AS fe_ts,
+    fe.supply_forecast_execution_id AS fe_exec_id,
+    fe.supply_forecast_execution_schedule_id AS fe_sched_id,
+    fe.ext_supplier_code,
+    fe.monthly_net_margin_in_millions AS fe_net_margin_m,
+    fe.monthly_purchases_in_millions AS fe_purchases_m,
+    fe.monthly_sales_in_millions AS fe_sales_m,
+    fe.sotck_days AS stock_days,
+    fe.sotck_days_colors AS stock_days_colors,
+    fe.supplier_id AS fe_supplier_id,
+    fe.supply_forecast_execution_status_id AS fe_status_id,
+    sfes.name AS fe_status_name,
+    sfes.description AS fe_status_desc,
+    fe.contains_breaks,
+    fe.maximum_backorder_days AS max_backorder_days,
+    fe.otif,
+    fe.total_products AS fe_total_products,
+    fe.total_units AS fe_total_units,
+    fe.supply_purchase_proposal_id AS pp_id,
+    pp.closed_at AS pp_closed_at,
+    pp.comments AS pp_comments,
+    pp.open_at AS pp_open_at,
+    pp.proposal_number AS pp_number,
+    pp.status AS pp_status,
+    pp."timestamp" AS pp_ts,
+    pp.total_amount AS pp_total_amount,
+    pp.total_products AS pp_total_products,
+    pp.total_sites AS pp_total_sites,
+    pp.total_units AS pp_total_units,
+    pp.buyer_id,
+    pp.supplier_id AS pp_supplier_id,
+    pp.user_id,
+    pp.user_name,
+    COALESCE(pp.open_at, fe.end_execution, fe.start_execution, fe."timestamp") AS base_ts,
+    EXTRACT(epoch FROM fe.end_execution - fe.start_execution) / 60.0 AS exec_time_min,
+    EXTRACT(epoch FROM pp.open_at - fe.end_execution) / 60.0 AS lead_open_min,
+    EXTRACT(epoch FROM COALESCE(pp.closed_at, now()) - COALESCE(pp.open_at, COALESCE(pp."timestamp", fe.end_execution))) / 60.0 AS adjust_time_min
+   FROM supply_planning.spl_supply_forecast_execution_execute fe
+     LEFT JOIN supply_planning.spl_supply_purchase_proposal pp ON pp.id = fe.supply_purchase_proposal_id
+     LEFT JOIN supply_planning.spl_supply_forecast_execution_status sfes ON sfes.id = fe.supply_forecast_execution_status_id;
 
-  -- Timestamp “base” para series (prioriza evento de propuesta, si existe)
-  COALESCE(pp.open_at, fe.end_execution, fe.start_execution, fe."timestamp")          AS base_ts,
-
-  -- Métricas de tiempo (minutos)
-  EXTRACT(EPOCH FROM (fe.end_execution - fe.start_execution))/60.0                    AS exec_time_min,        -- duración del forecast
-  EXTRACT(EPOCH FROM (pp.open_at - fe.end_execution))/60.0                            AS lead_open_min,        -- fin forecast → apertura propuesta
-  EXTRACT(EPOCH FROM (COALESCE(pp.closed_at, now()) - COALESCE(pp.open_at, COALESCE(pp."timestamp", fe.end_execution))))/60.0
-                                                                                      AS adjust_time_min       -- apertura → cierre (o hasta ahora)
-FROM public.spl_supply_forecast_execution_execute fe
-LEFT JOIN public.spl_supply_purchase_proposal pp
-  ON pp.id = fe.supply_purchase_proposal_id
-LEFT JOIN public.spl_supply_forecast_execution_status sfes
-  ON sfes.id = fe.supply_forecast_execution_status_id
-;
 """
-
 
 # --- Consultas parametrizadas (tomen 'desde'/'hasta' como date/datetime de Python) ---
 
@@ -701,7 +695,7 @@ LEFT JOIN public.spl_supply_forecast_execution_status sfes
 SQL_FP_CONVERSION_MENSUAL = text("""
 WITH b AS (
   SELECT *
-  FROM views.v_forecast_propuesta_base
+  FROM mon.v_forecast_propuesta_base
   WHERE base_ts >= :desde AND base_ts < (:hasta + INTERVAL '1 day')
 )
 , fe_m AS (
@@ -734,7 +728,7 @@ ORDER BY mes;
 SQL_FP_MENSUAL_COMPRADOR = text("""
 WITH b AS (
   SELECT *
-  FROM views.v_forecast_propuesta_base
+  FROM mon.v_forecast_propuesta_base
   WHERE base_ts >= :desde AND base_ts < (:hasta + INTERVAL '1 day')
     AND pp_id IS NOT NULL
 )
@@ -756,7 +750,7 @@ ORDER BY mes, comprador;
 SQL_FP_RANKING_COMPRADOR = text("""
 WITH b AS (
   SELECT *
-  FROM views.v_forecast_propuesta_base
+  FROM mon.v_forecast_propuesta_base
   WHERE base_ts >= :desde AND base_ts < (:hasta + INTERVAL '1 day')
     AND pp_id IS NOT NULL
 )
@@ -776,7 +770,7 @@ LIMIT :topn;
 SQL_FP_ESTADOS_PROP = text("""
 WITH b AS (
   SELECT *
-  FROM views.v_forecast_propuesta_base
+  FROM mon.v_forecast_propuesta_base
   WHERE base_ts >= :desde AND base_ts < (:hasta + INTERVAL '1 day')
     AND pp_id IS NOT NULL
 )
@@ -793,7 +787,38 @@ SELECT
   pp_id, pp_number, pp_status, pp_open_at, pp_closed_at,
   buyer_id, user_name, pp_total_amount, pp_total_units, pp_total_products,
   exec_time_min, lead_open_min, adjust_time_min, ext_supplier_code, fe_supplier_id
-FROM views.v_forecast_propuesta_base
+FROM mon.v_forecast_propuesta_base
 WHERE base_ts >= :desde AND base_ts < (:hasta + INTERVAL '1 day')
 ORDER BY base_ts DESC, pp_id NULLS LAST;
 """)
+
+# NUEVOS QUERYS PARA INDICADOR DE PRODUCTIVIDAD CONNEXA
+# SQL Server (resumen mensual de pedidos Connexa)
+SQL_PG_CONNEXA_PROV = text("""
+SELECT 
+    c_proveedor,
+    COUNT(DISTINCT c_compra_connexa) AS pedidos_connexa,
+    SUM(COALESCE(q_bultos_kilos_diarco,0)) AS bultos_connexa
+FROM public.t080_oc_precarga_connexa
+WHERE f_alta_sist >= :desde 
+  AND f_alta_sist <  :hasta
+GROUP BY c_proveedor
+""")
+
+SQL_SGM_CONNEXA_PROV = text("""
+SELECT 
+    c_proveedor,
+    COUNT(DISTINCT oc_sgm) AS oc_sgm_generadas,
+    SUM(q_bultos_ci) AS bultos_sgm
+FROM (
+    SELECT 
+        C_PROVEEDOR AS c_proveedor,
+        CONCAT(CAST(U_PREFIJO_OC AS varchar(32)), '-', CAST(U_SUFIJO_OC AS varchar(32))) AS oc_sgm,
+        COALESCE(Q_BULTOS_KILOS_DIARCO,0) AS q_bultos_ci
+    FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
+    WHERE F_ALTA_SIST >= :desde
+      AND F_ALTA_SIST <  :hasta
+) AS base
+GROUP BY c_proveedor
+""")
+
