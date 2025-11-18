@@ -822,3 +822,30 @@ FROM (
 GROUP BY c_proveedor
 """)
 
+# NUEVOS QUERYS PARA VERIFICAR VENTAS de PRODUCTOS
+# SQL Server (resumen mensual de pedidos Connexa)
+
+SQL_VENTAS_PROVEEDOR = text("""
+SELECT 
+    v.fecha,
+    v.codigo_articulo,
+    v.sucursal AS codigo_sucursal,
+    s.suc_nombre,
+    p.c_proveedor_primario AS c_proveedor,
+    pr.n_proveedor,
+    SUM(v.unidades) AS unidades
+FROM src.base_ventas_extendida v
+JOIN src.base_productos_vigentes p 
+      ON p.c_articulo = v.codigo_articulo
+JOIN src.m_91_sucursales s
+      ON s.id_tienda = v.sucursal::text
+LEFT JOIN src.m_10_proveedores pr
+      ON pr.c_proveedor = p.c_proveedor_primario
+WHERE v.fecha >= :desde
+  AND v.fecha <= :hasta
+  AND p.c_proveedor_primario = :proveedor
+GROUP BY 
+    v.fecha, v.codigo_articulo, v.sucursal,
+    s.suc_nombre, p.c_proveedor_primario, pr.n_proveedor
+ORDER BY v.fecha, v.sucursal, v.codigo_articulo;
+""")
