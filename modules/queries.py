@@ -395,7 +395,7 @@ t874_r AS (
 SELECT
   DATEFROMPARTS(YEAR(c.f_alta_date), MONTH(c.f_alta_date), 1)           AS mes,
   COUNT(DISTINCT c.oc_sgm)                                              AS oc_totales_sgm,
-  COUNT(DISTINCT CASE WHEN t.oc_sgm IS NOT NULL THEN c.oc_sgm END)      AS oc_desde_ci,
+  COUNT(DISTINCT CASE WHEN t.oc_sgm IS NOT NULL THEN c.oc_sgm END)      AS oc_desde_connexa,
   CAST(
     1.0 * COUNT(DISTINCT CASE WHEN t.oc_sgm IS NOT NULL THEN c.oc_sgm END) / NULLIF(COUNT(DISTINCT c.oc_sgm), 0)
     AS decimal(9,6)
@@ -755,7 +755,7 @@ WITH b AS (
     AND pp_id IS NOT NULL
 )
 SELECT
-  COALESCE(NULLIF(trim(user_name), ''), buyer_id::text, '- sin comprador -') AS comprador,
+  COALESCE(NULLIF(trim(user_name), ''), buyer_id::text, '- sin modificacion -') AS comprador,
   COUNT(DISTINCT pp_id)                                                      AS propuestas,
   SUM(pp_total_amount)                                                       AS monto_total,
   percentile_cont(0.5) WITHIN GROUP (ORDER BY adjust_time_min)               AS p50_ajuste_min,

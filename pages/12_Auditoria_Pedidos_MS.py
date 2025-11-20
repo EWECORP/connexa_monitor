@@ -81,11 +81,11 @@ def _build_pg_url(host: str, port: str, db: str, user: str, pwd: str) -> str:
 
 @st.cache_resource(show_spinner=False)
 def get_connexa_engine() -> Engine:
-    host = os.getenv("CONNEXA_PG_HOST", os.getenv("CMSP_HOST"))
-    port = os.getenv("CONNEXA_PG_PORT", os.getenv("CMSP_PORT", "5432"))
-    db   = os.getenv("CONNEXA_PG_DB",   os.getenv("CMSP_DB"))
-    usr  = os.getenv("CONNEXA_PG_USER", os.getenv("CMSP_USER"))
-    pwd  = os.getenv("CONNEXA_PG_PASSWORD", os.getenv("CMSP_PASSWORD"))
+    host = os.getenv("CONNEXA_PG_HOST", os.getenv("PGP_HOST"))
+    port = os.getenv("CONNEXA_PG_PORT", os.getenv("PGP_PORT", "5432"))
+    db   = os.getenv("CONNEXA_PG_DB",   os.getenv("PGP_DB"))
+    usr  = os.getenv("CONNEXA_PG_USER", os.getenv("PGP_USER"))
+    pwd  = os.getenv("CONNEXA_PG_PASSWORD", os.getenv("PGP_PASSWORD"))
     if not all([host, port, db, usr, pwd]):
         raise RuntimeError("Faltan variables de entorno para Postgres connexa_platform.")
     url = _build_pg_url(host, port, db, usr, pwd)

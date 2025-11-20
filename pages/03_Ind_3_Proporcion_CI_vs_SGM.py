@@ -36,7 +36,7 @@ def fetch_proporcion(desde: date, hasta: date) -> pd.DataFrame:
     Se apoya en SQL_SGM_I3_MENSUAL, que expone:
       - mes
       - oc_totales_sgm
-      - oc_desde_ci        (OC SGM originadas en CONNEXA)
+      - oc_desde_connexa        (OC SGM originadas en CONNEXA)
       - proporcion_ci      (decimal 0–1)
     """
     eng = get_sqlserver_engine()
@@ -56,7 +56,7 @@ def fetch_proporcion(desde: date, hasta: date) -> pd.DataFrame:
     # Normalización de tipos
     if "mes" in df.columns:
         df["mes"] = pd.to_datetime(df["mes"])
-    for col in ["oc_totales_sgm", "oc_desde_ci"]:
+    for col in ["oc_totales_sgm", "oc_desde_connexa"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("Int64")
     if "proporcion_ci" in df.columns:
@@ -115,7 +115,7 @@ with tab_prop:
     else:
         # Métricas de rango
         total_oc = int(df["oc_totales_sgm"].sum())
-        total_oc_connexa = int(df["oc_desde_ci"].sum())
+        total_oc_connexa = int(df["oc_desde_connexa"].sum())
         proporcion_global = (
             (total_oc_connexa / total_oc) if total_oc > 0 else 0.0
         )
@@ -132,17 +132,17 @@ with tab_prop:
             )
 
         # Gráfico 1: OC totales vs OC desde CONNEXA
-        df_counts = df[["mes", "oc_totales_sgm", "oc_desde_ci"]].copy()
+        df_counts = df[["mes", "oc_totales_sgm", "oc_desde_connexa"]].copy()
         df_counts = df_counts.melt(
             id_vars="mes",
-            value_vars=["oc_totales_sgm", "oc_desde_ci"],
+            value_vars=["oc_totales_sgm", "oc_desde_connexa"],
             var_name="tipo",
             value_name="cantidad",
         )
         df_counts["tipo"] = df_counts["tipo"].map(
             {
                 "oc_totales_sgm": "OC totales SGM",
-                "oc_desde_ci": "OC SGM originadas en CONNEXA",
+                "oc_desde_connexa": "OC SGM originadas en CONNEXA",
             }
         )
 

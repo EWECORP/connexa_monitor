@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide",
 )
 
-render_header("Indicador 6 — Forecast → Propuesta (productividad por comprador)")
+render_header("Indicador 5 — Forecast → Propuesta (productividad por comprador)")
 
 # -------------------------------------------------------
 # Filtros
