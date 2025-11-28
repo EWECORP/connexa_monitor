@@ -1,5 +1,72 @@
 
+#queries.py
 from sqlalchemy import text
+
+# queries.py (en raíz del proyecto)
+"""
+Fachada de compatibilidad.
+
+A futuro, se recomienda importar directamente desde modules.queries.*
+pero mientras se migra el código, este módulo expone funciones de alto nivel.
+"""
+
+from modules.queries.mon_views import ensure_mon_objects, ensure_forecast_views
+from modules.queries.uso_general import (
+    get_oc_generadas_mensual,
+    get_proporcion_ci_vs_sgm_mensual,
+    get_forecast_propuesta_conversion_mensual,
+)
+from modules.queries.compradores import (
+    get_ranking_compradores_pg,
+    get_ranking_compradores_nombre_pg,
+    get_productividad_comprador_mensual,
+    get_ranking_comprador_forecast,
+)
+from modules.queries.proveedores import (
+    get_proveedores_connexa,
+    get_proveedores_ci_vs_sgm,
+    get_ranking_proveedores_ci,
+)
+from modules.queries.efectividad import (
+    get_estados_propuestas,
+    get_detalle_forecast_propuesta,
+)
+from modules.queries.stock_ventas import (
+    get_stock_sucursal,
+    get_productos_vigentes,
+    get_ventas_30d,
+    get_ventas_proveedor,
+)
+from modules.queries.sgm_bridge import (
+    get_kikker_vs_oc_mensual,
+    get_kikker_detalle,
+    get_kikker_duplicadas,
+)
+
+__all__ = [
+    "ensure_mon_objects",
+    "ensure_forecast_views",
+    "get_oc_generadas_mensual",
+    "get_proporcion_ci_vs_sgm_mensual",
+    "get_forecast_propuesta_conversion_mensual",
+    "get_ranking_compradores_pg",
+    "get_ranking_compradores_nombre_pg",
+    "get_productividad_comprador_mensual",
+    "get_ranking_comprador_forecast",
+    "get_proveedores_connexa",
+    "get_proveedores_ci_vs_sgm",
+    "get_ranking_proveedores_ci",
+    "get_estados_propuestas",
+    "get_detalle_forecast_propuesta",
+    "get_stock_sucursal",
+    "get_productos_vigentes",
+    "get_ventas_30d",
+    "get_ventas_proveedor",
+    "get_kikker_vs_oc_mensual",
+    "get_kikker_detalle",
+    "get_kikker_duplicadas",
+]
+
 
 
 # ------------------------------------------------

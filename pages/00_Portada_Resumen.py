@@ -1,40 +1,49 @@
-# 00_Portada_Resumen.py
-# Portada — Monitor CONNEXA → SGM
-# Resumen ejecutivo:
-#   - Forecast → Propuesta
-#   - Pedidos CONNEXA → OC SGM
-#   - % OC SGM originadas en CONNEXA
-#   - Top compradores / proveedores
+# pages/00_Portada_Resumen.py
+# Portada — Monitor CONNEXA → SGM (visión gerencial)
+#
+# Ejes principales:
+#   1) Uso general del sistema
+#   2) Gestión de compradores
+#   3) Incorporación de proveedores
 
+from datetime import date
 import os
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from sqlalchemy import text
 
 from modules.db import (
-    get_pg_engine,         # diarco_data
-    get_sqlserver_engine,  # SGM
-    get_pgp_engine,        # connexa_platform_ms (PRODUCCIÓN CONNEXA)
+    get_connexa_engine,   # connexa_platform_ms
+    get_diarco_engine,    # diarco_data
+    get_sqlserver_engine  # SGM (SQL Server)
 )
 from modules.ui import render_header, make_date_filters
-from modules.queries import (
-    # Forecast → Propuesta (nuevo esquema supply_planning)
+
+from modules.queries.uso_general import (
+    ensure_mon_objects,
     ensure_forecast_views,
-    SQL_FP_CONVERSION_MENSUAL,
-    SQL_FP_RANKING_COMPRADOR,
-    # Embudo CONNEXA → SGM
-    SQL_PG_KIKKER_MENSUAL,
-    SQL_SGM_KIKKER_VS_OC_MENSUAL,
-    # % OC SGM originadas en CONNEXA
-    SQL_SGM_I3_MENSUAL,
-    # Ranking compradores (OC CONNEXA)
-    SQL_RANKING_COMPRADORES_NOMBRE,
-    # Proveedores CONNEXA → SGM
-    SQL_SGM_I4_PROV_DETALLE,
+    get_oc_generadas_mensual,
+    get_forecast_propuesta_conversion_mensual,
+    get_embudo_connexa_sgm_mensual,
+    get_proporcion_ci_vs_sgm_mensual,
 )
 
+from modules.queries.compradores import (
+    get_ranking_compradores_resumen,
+    get_ranking_comprador_forecast,
+    get_productividad_comprador_mensual,
+)
+
+from modules.queries.proveedores import (
+    get_ranking_proveedores_resumen,
+    get_proveedores_ci_vs_sgm_mensual,
+)
+
+
 # -------------------------------------------------------
-# Configuración general de la portada
+# Configuración general de la página
 # -------------------------------------------------------
 st.set_page_config(
     page_title="Portada — Monitor CONNEXA → SGM",
@@ -44,33 +53,36 @@ st.set_page_config(
 
 render_header("Portada — Monitor CONNEXA → SGM")
 
+# Filtros de fecha (rango común para todos los bloques)
 desde, hasta = make_date_filters()
 
-# ==============================================
-# Sidebar — Estado de conexiones y origen real
-# ==============================================
-from sqlalchemy import text
+# TTL de caché configurable por entorno
+ttl = int(os.getenv("CACHE_TTL_SECONDS", "300"))
 
+
+# =======================================================
+# 1. Sidebar — Estado de conexiones
+# =======================================================
 with st.sidebar:
     st.subheader("🔌 Fuentes de datos")
 
     conn_connexa = conn_diarco = conn_sgm = False
     info_connexa = info_diarco = info_sgm = "—"
 
-    # Connexa Platform (connexa_platform_ms)
+    # Connexa Platform (PostgreSQL)
     try:
-        eng_cnx = get_pgp_engine()
+        eng_cnx = get_connexa_engine()
         with eng_cnx.connect() as con:
             db = con.execute(text("select current_database()")).scalar()
             ip = con.execute(text("select host(inet_server_addr())")).scalar()
         conn_connexa = True
         info_connexa = f"{ip} · DB: {db}"
     except Exception as e:
-        st.error(f"❌ Connexa Platform MS no disponible\n\n{e}")
+        st.error(f"❌ Connexa Platform no disponible\n\n{e}")
 
-    # Diarco Data (diarco_data)
+    # Diarco Data (PostgreSQL)
     try:
-        eng_diarco = get_pg_engine()
+        eng_diarco = get_diarco_engine()
         with eng_diarco.connect() as con:
             db = con.execute(text("select current_database()")).scalar()
             ip = con.execute(text("select host(inet_server_addr())")).scalar()
@@ -82,14 +94,17 @@ with st.sidebar:
     # SQL Server SGM
     try:
         eng_sgm = get_sqlserver_engine()
-        with eng_sgm.connect() as con:
-            row = con.execute(text("""
-                SELECT 
-                    DB_NAME() AS db,
-                    CONNECTIONPROPERTY('local_net_address') AS ip
-            """)).fetchone()
-        conn_sgm = True
-        info_sgm = f"{row.ip} · DB: {row.db}"
+        if eng_sgm is not None:
+            with eng_sgm.connect() as con:
+                row = con.execute(text("""
+                    SELECT 
+                        DB_NAME() AS db,
+                        CONNECTIONPROPERTY('local_net_address') AS ip
+                """)).fetchone()
+            conn_sgm = True
+            info_sgm = f"{row.ip} · DB: {row.db}"
+        else:
+            st.warning("⚠️ Parámetros de conexión a SQL Server incompletos.")
     except Exception:
         st.warning("⚠️ SQL Server SGM no disponible")
 
@@ -111,282 +126,108 @@ with st.sidebar:
         f"<small>{info_sgm}</small>",
         unsafe_allow_html=True,
     )
-# =======================================================
-
-ttl = int(os.getenv("CACHE_TTL_SECONDS", "300"))
-
-
-
-
-# -------------------------------------------------------
-# Bloque Forecast → Propuesta (Indicador 6, resumen)
-# -------------------------------------------------------
-@st.cache_data(ttl=ttl)
-def fetch_forecast_conversion(desde, hasta) -> pd.DataFrame:
-    """
-    Serie mensual de ejecuciones de forecast vs propuestas generadas.
-    Usa mon.v_forecast_propuesta_base (ensure_forecast_views).
-    """
-    eng_cnx = get_pgp_engine()
-    if eng_cnx is None:
-        return pd.DataFrame()
-
-    # Garantizar existencia/actualización de la vista
-    ensure_forecast_views(eng_cnx)
-
-    with eng_cnx.connect() as con:
-        df = pd.read_sql(
-            SQL_FP_CONVERSION_MENSUAL,
-            con,
-            params={"desde": desde, "hasta": hasta},
-        )
-
-    if df.empty:
-        return df
-
-    if "mes" in df.columns:
-        df["mes"] = pd.to_datetime(df["mes"])
-    for c in ("ejecuciones", "propuestas"):
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype("Int64")
-    if "conversion" in df.columns:
-        df["conversion"] = pd.to_numeric(df["conversion"], errors="coerce").fillna(0.0)
-
-    return df
-
-
-@st.cache_data(ttl=ttl)
-def fetch_forecast_ranking(desde, hasta, topn: int = 5) -> pd.DataFrame:
-    """
-    Ranking de compradores por propuestas generadas (Forecast → Propuesta).
-    """
-    eng_cnx = get_pgp_engine()
-    if eng_cnx is None:
-        return pd.DataFrame()
-
-    ensure_forecast_views(eng_cnx)
-
-    with eng_cnx.connect() as con:
-        df = pd.read_sql(
-            SQL_FP_RANKING_COMPRADOR,
-            con,
-            params={"desde": desde, "hasta": hasta, "topn": topn},
-        )
-
-    return df
-
-
-# -------------------------------------------------------
-# Bloque Embudo CONNEXA → SGM (Indicador 2, resumen)
-# -------------------------------------------------------
-@st.cache_data(ttl=ttl)
-def fetch_embudo_connexa_sgm(desde, hasta) -> pd.DataFrame:
-    """
-    Pedidos CONNEXA (PostgreSQL) vs OC SGM generadas desde CONNEXA (SQL Server), por mes.
-    """
-    eng_pg = get_pg_engine()
-    eng_ss = get_sqlserver_engine()
-    if eng_pg is None or eng_ss is None:
-        return pd.DataFrame()
-
-    # Pedidos CONNEXA (PG)
-    with eng_pg.connect() as con_pg:
-        df_pg = pd.read_sql(
-            SQL_PG_KIKKER_MENSUAL,
-            con_pg,
-            params={"desde": desde, "hasta": hasta},
-        )
-
-    if not df_pg.empty:
-        df_pg["mes"] = pd.to_datetime(df_pg["mes"])
-        df_pg.rename(
-            columns={
-                "kikker_distintos_pg": "pedidos_connexa",
-                "total_bultos_pg": "bultos_connexa",
-            },
-            inplace=True,
-        )
-        df_pg["pedidos_connexa"] = pd.to_numeric(
-            df_pg["pedidos_connexa"], errors="coerce"
-        ).fillna(0).astype("Int64")
-        df_pg["bultos_connexa"] = pd.to_numeric(
-            df_pg["bultos_connexa"], errors="coerce"
-        ).fillna(0.0)
-    else:
-        df_pg = pd.DataFrame(columns=["mes", "pedidos_connexa", "bultos_connexa"])
-
-    # OC SGM (SQL Server)
-    with eng_ss.connect() as con_ss:
-        df_sgm = pd.read_sql(
-            SQL_SGM_KIKKER_VS_OC_MENSUAL,
-            con_ss,
-            params={"desde": desde, "hasta": hasta},
-        )
-
-    if not df_sgm.empty:
-        df_sgm["mes"] = pd.to_datetime(df_sgm["mes"])
-        df_sgm.rename(
-            columns={
-                "kikker_distintos": "nips_sgm",
-                "oc_sgm_distintas": "oc_sgm",
-                "total_bultos": "bultos_sgm",
-            },
-            inplace=True,
-        )
-        for c in ("nips_sgm", "oc_sgm"):
-            if c in df_sgm.columns:
-                df_sgm[c] = pd.to_numeric(df_sgm[c], errors="coerce").fillna(0).astype("Int64")
-        df_sgm["bultos_sgm"] = pd.to_numeric(
-            df_sgm["bultos_sgm"], errors="coerce"
-        ).fillna(0.0)
-    else:
-        df_sgm = pd.DataFrame(columns=["mes", "nips_sgm", "oc_sgm", "bultos_sgm"])
-
-    # Embudo
-    df = pd.merge(df_pg, df_sgm, on="mes", how="outer").sort_values("mes")
-
-    for c in ("pedidos_connexa", "oc_sgm", "bultos_connexa", "bultos_sgm"):
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-
-    df["tasa_conv_pedidos_oc"] = df.apply(
-        lambda r: (r["oc_sgm"] / r["pedidos_connexa"] * 100)
-        if r.get("pedidos_connexa", 0) > 0
-        else 0.0,
-        axis=1,
-    )
-
-    return df
-
-
-# -------------------------------------------------------
-# Bloque % OC SGM originadas en CONNEXA (Indicador 3, resumen)
-# -------------------------------------------------------
-@st.cache_data(ttl=ttl)
-def fetch_prop_oc_connexa(desde, hasta) -> pd.DataFrame:
-    """
-    Proporción mensual de OC SGM originadas en CONNEXA.
-    Basado en SQL_SGM_I3_MENSUAL.
-    """
-    eng_ss = get_sqlserver_engine()
-    if eng_ss is None:
-        return pd.DataFrame()
-
-    with eng_ss.connect() as con:
-        df = pd.read_sql(
-            SQL_SGM_I3_MENSUAL,
-            con,
-            params={"desde": desde, "hasta": hasta},
-        )
-
-    if df.empty:
-        return df
-
-    if "mes" in df.columns:
-        df["mes"] = pd.to_datetime(df["mes"])
-
-    for c in ("oc_totales_sgm", "oc_desde_connexa"):
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype("Int64")
-
-    # Se asume que la query ya trae 'proporcion_ci' o similar; si no, podemos calcularla.
-    if "proporcion_ci" in df.columns:
-        df["proporcion_ci"] = pd.to_numeric(
-            df["proporcion_ci"], errors="coerce"
-        ).fillna(0.0)
-    else:
-        df["proporcion_ci"] = df.apply(
-            lambda r: (r["oc_desde_connexa"] / r["oc_totales_sgm"])
-            if r.get("oc_totales_sgm", 0) > 0
-            else 0.0,
-            axis=1,
-        )
-
-    return df
-
-
-# -------------------------------------------------------
-# Bloque ranking de compradores y proveedores
-# -------------------------------------------------------
-@st.cache_data(ttl=ttl)
-def fetch_ranking_compradores_oc(desde, hasta, topn: int = 5) -> pd.DataFrame:
-    """
-    Top compradores por OC generadas en CONNEXA (Indicador 1, resumen).
-    """
-    eng_pg = get_pg_engine()
-    if eng_pg is None:
-        return pd.DataFrame()
-
-    with eng_pg.connect() as con:
-        df = pd.read_sql(
-            SQL_RANKING_COMPRADORES_NOMBRE,
-            con,
-            params={"desde": desde, "hasta": hasta, "topn": topn},
-        )
-
-    return df
-
-
-@st.cache_data(ttl=ttl)
-def fetch_ranking_proveedores(desde, hasta, topn: int = 5) -> pd.DataFrame:
-    """
-    Top proveedores por OC SGM originadas en CONNEXA (usando detalle de T874).
-    """
-    eng_ss = get_sqlserver_engine()
-    if eng_ss is None:
-        return pd.DataFrame()
-
-    with eng_ss.connect() as con:
-        df = pd.read_sql(
-            SQL_SGM_I4_PROV_DETALLE,
-            con,
-            params={"desde": desde, "hasta": hasta},
-        )
-
-    if df.empty:
-        return df
-
-    if "c_proveedor" in df.columns:
-        df["c_proveedor"] = pd.to_numeric(
-            df["c_proveedor"], errors="coerce"
-        ).astype("Int64")
-    if "q_bultos_ci" in df.columns:
-        df["q_bultos_ci"] = pd.to_numeric(
-            df["q_bultos_ci"], errors="coerce"
-        ).fillna(0.0)
-
-    # Agregado simple por proveedor
-    rk = (
-        df.groupby("c_proveedor", dropna=False)
-          .agg(
-              oc_distintas=("oc_sgm", "nunique"),
-              bultos_total=("q_bultos_ci", "sum"),
-          )
-          .reset_index()
-    )
-    rk = rk.sort_values("bultos_total", ascending=False).head(topn)
-    return rk
 
 
 # =======================================================
-# RENDER PORTADA
+# 2. Funciones de carga (capa de caché)
 # =======================================================
+
+@st.cache_data(ttl=ttl)
+def _init_mon_objects(desde: date, hasta: date) -> bool:
+    """
+    Inicializa/asegura vistas mon.* y mon.v_forecast_propuesta_base.
+    Es idempotente; se invoca una vez por rango en la portada.
+    """
+    try:
+        eng_d = get_diarco_engine()
+        eng_c = get_connexa_engine()
+        if eng_d is not None:
+            ensure_mon_objects(eng_d)
+        if eng_c is not None:
+            ensure_forecast_views(eng_c)
+        return True
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=ttl)
+def load_uso_general(desde: date, hasta: date):
+    """
+    Carga los DataFrames principales de USO GENERAL del sistema:
+      - oc_generadas_mensual     (Diarco Data)
+      - forecast_propuesta       (Connexa)
+      - embudo_connexa_sgm       (PG + SQL Server)
+      - proporcion_ci_vs_sgm     (SQL Server)
+    """
+    _ = _init_mon_objects(desde, hasta)
+
+    eng_d = get_diarco_engine()
+    eng_c = get_connexa_engine()
+    eng_s = get_sqlserver_engine()
+
+    df_oc = get_oc_generadas_mensual(eng_d, desde, hasta) if eng_d else pd.DataFrame()
+    df_fp = get_forecast_propuesta_conversion_mensual(eng_c, desde, hasta) if eng_c else pd.DataFrame()
+    df_emb = get_embudo_connexa_sgm_mensual(eng_d, eng_s, desde, hasta) if (eng_d and eng_s) else pd.DataFrame()
+    df_prop = get_proporcion_ci_vs_sgm_mensual(eng_s, desde, hasta) if eng_s else pd.DataFrame()
+
+    return df_oc, df_fp, df_emb, df_prop
+
+
+@st.cache_data(ttl=ttl)
+def load_compradores(desde: date, hasta: date):
+    """
+    Carga los DataFrames relacionados con compradores:
+      - ranking_compradores_oc      (Diarco Data)
+      - ranking_compradores_fp      (Connexa)
+      - productividad_comprador     (Connexa, serie mensual)
+    """
+    eng_d = get_diarco_engine()
+    eng_c = get_connexa_engine()
+
+    df_rk_oc = get_ranking_compradores_resumen(eng_d, desde, hasta, topn=5) if eng_d else pd.DataFrame()
+    df_rk_fp = get_ranking_comprador_forecast(eng_c, desde, hasta, topn=5) if eng_c else pd.DataFrame()
+    df_prod  = get_productividad_comprador_mensual(eng_c, desde, hasta) if eng_c else pd.DataFrame()
+
+    return df_rk_oc, df_rk_fp, df_prod
+
+
+@st.cache_data(ttl=ttl)
+def load_proveedores(desde: date, hasta: date):
+    """
+    Carga los DataFrames relacionados con proveedores:
+      - ranking_proveedores_ci       (SQL Server, vía CI)
+      - proveedores_ci_vs_sgm_mensual (SQL Server)
+    """
+    eng_s = get_sqlserver_engine()
+
+    df_rk_prov = get_ranking_proveedores_resumen(eng_s, desde, hasta, topn=5) if eng_s else pd.DataFrame()
+    df_prop_prov = get_proveedores_ci_vs_sgm_mensual(eng_s, desde, hasta) if eng_s else pd.DataFrame()
+
+    return df_rk_prov, df_prop_prov
+
+
+# =======================================================
+# 3. Sección USO GENERAL DEL SISTEMA
+# =======================================================
+st.markdown("## 1. Uso general del sistema")
+
+df_oc, df_fp, df_emb, df_prop = load_uso_general(desde, hasta)
 
 # -------------------------
-# Sección 1: Forecast → Propuesta
+# 1.1 Forecast → Propuesta
 # -------------------------
-st.markdown("## 1. Forecast → Propuesta de compra (CONNEXA)")
-
-df_fp = fetch_forecast_conversion(desde, hasta)
+st.markdown("### 1.1 Forecast → Propuesta de compra (Connexa)")
 
 if df_fp.empty:
     st.info("No se encontraron ejecuciones de forecast ni propuestas en el rango seleccionado.")
 else:
-    total_ejec = int(df_fp["ejecuciones"].sum())
-    total_prop = int(df_fp["propuestas"].sum())
-    conv_global = (
-        total_prop / total_ejec if total_ejec > 0 else 0.0
-    )
+    # Normalización de columnas esperadas
+    if "mes" in df_fp.columns:
+        df_fp["mes"] = pd.to_datetime(df_fp["mes"])
+
+    total_ejec = int(pd.to_numeric(df_fp.get("ejecuciones", 0), errors="coerce").fillna(0).sum())
+    total_prop = int(pd.to_numeric(df_fp.get("propuestas", 0), errors="coerce").fillna(0).sum())
+    conv_global = (total_prop / total_ejec) if total_ejec > 0 else 0.0
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -396,35 +237,44 @@ else:
     with col3:
         st.metric("Tasa global Forecast → Propuesta", value=f"{conv_global * 100:,.1f} %")
 
-    fig_fp = px.line(
-        df_fp,
-        x="mes",
-        y="conversion",
-        markers=True,
-        title="Tasa de conversión Forecast → Propuesta (mensual)",
-    )
-    fig_fp.update_layout(xaxis_title="Mes", yaxis_title="Conversión (ratio)")
-    st.plotly_chart(fig_fp, width='content')
+    if "conversion" in df_fp.columns:
+        df_fp["conversion_pct"] = pd.to_numeric(df_fp["conversion"], errors="coerce").fillna(0.0) * 100.0
+        fig_fp = px.line(
+            df_fp,
+            x="mes",
+            y="conversion_pct",
+            markers=True,
+            title="Tasa de conversión Forecast → Propuesta (mensual, %)",
+        )
+        fig_fp.update_layout(xaxis_title="Mes", yaxis_title="Conversión (%)")
+        st.plotly_chart(fig_fp, use_container_width=True)
 
     with st.expander("Detalle mensual Forecast → Propuesta"):
-        st.dataframe(df_fp, width='content', hide_index=True)
+        st.dataframe(df_fp, use_container_width=True)
+
 
 # -------------------------
-# Sección 2: Pedidos CONNEXA → OC SGM (Embudo)
+# 1.2 Embudo CONNEXA → SGM
 # -------------------------
 st.markdown("---")
-st.markdown("## 2. Embudo CONNEXA → SGM (Pedidos vs OC)")
-
-df_emb = fetch_embudo_connexa_sgm(desde, hasta)
+st.markdown("### 1.2 Embudo CONNEXA → SGM (Pedidos vs OC)")
 
 if df_emb.empty:
     st.info("No se encontraron datos de CONNEXA ni SGM para el rango seleccionado.")
 else:
-    total_pedidos = int(df_emb["pedidos_connexa"].sum())
-    total_oc = int(df_emb["oc_sgm"].sum())
-    total_bultos_pg = float(df_emb["bultos_connexa"].sum())
-    total_bultos_sgm = float(df_emb["bultos_sgm"].sum())
-    tasa_global = total_oc / total_pedidos * 100 if total_pedidos > 0 else 0.0
+    # Normalización
+    if "mes" in df_emb.columns:
+        df_emb["mes"] = pd.to_datetime(df_emb["mes"])
+
+    for c in ("pedidos_connexa", "oc_sgm", "bultos_connexa", "bultos_sgm"):
+        if c in df_emb.columns:
+            df_emb[c] = pd.to_numeric(df_emb[c], errors="coerce").fillna(0.0)
+
+    total_pedidos = int(df_emb.get("pedidos_connexa", 0).sum())
+    total_oc = int(df_emb.get("oc_sgm", 0).sum())
+    total_bultos_pg = float(df_emb.get("bultos_connexa", 0).sum())
+    total_bultos_sgm = float(df_emb.get("bultos_sgm", 0).sum())
+    tasa_global = (total_oc / total_pedidos * 100.0) if total_pedidos > 0 else 0.0
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -436,6 +286,7 @@ else:
     with col4:
         st.metric("Bultos en OC SGM (rango)", value=f"{total_bultos_sgm:,.0f}")
 
+    # Gráfico de cantidad NIPs vs OC
     fig_emb1 = px.bar(
         df_emb,
         x="mes",
@@ -448,41 +299,43 @@ else:
         yaxis_title="Cantidad",
         legend_title="Serie",
     )
-    st.plotly_chart(fig_emb1, width='content')
+    st.plotly_chart(fig_emb1, use_container_width=True)
 
-    fig_emb2 = px.line(
-        df_emb,
-        x="mes",
-        y="tasa_conv_pedidos_oc",
-        markers=True,
-        title="Tasa de conversión Pedidos CONNEXA → OC SGM (mensual, %)",
-    )
-    fig_emb2.update_layout(xaxis_title="Mes", yaxis_title="Conversión (%)")
-    st.plotly_chart(fig_emb2, width='content')
+    # Conversión pedidos → OC
+    if "tasa_conv_pedidos_oc" in df_emb.columns:
+        df_emb["tasa_conv_pedidos_oc"] = pd.to_numeric(
+            df_emb["tasa_conv_pedidos_oc"], errors="coerce"
+        ).fillna(0.0)
+        fig_emb2 = px.line(
+            df_emb,
+            x="mes",
+            y="tasa_conv_pedidos_oc",
+            markers=True,
+            title="Tasa de conversión Pedidos CONNEXA → OC SGM (mensual, %)",
+        )
+        fig_emb2.update_layout(xaxis_title="Mes", yaxis_title="Conversión (%)")
+        st.plotly_chart(fig_emb2, use_container_width=True)
+
 
 # -------------------------
-# Sección 3: % OC SGM originadas en CONNEXA
+# 1.3 % OC SGM originadas en CONNEXA
 # -------------------------
 st.markdown("---")
-st.markdown("## 3. % de OC SGM originadas en CONNEXA")
-
-df_prop = fetch_prop_oc_connexa(desde, hasta)
-
+st.markdown("### 1.3 % de OC SGM originadas en CONNEXA")
 
 if df_prop.empty:
     st.info("No se encontraron datos de OC SGM para el rango seleccionado.")
 else:
-    # Validación de columnas esperadas
-    columnas_esperadas = ["oc_totales_sgm", "oc_desde_connexa", "proporcion_ci", "mes"]
-    columnas_faltantes = [col for col in columnas_esperadas if col not in df_prop.columns]
+    if "mes" in df_prop.columns:
+        df_prop["mes"] = pd.to_datetime(df_prop["mes"])
 
-    if columnas_faltantes:
-        st.error(f"Faltan las siguientes columnas en el DataFrame: {', '.join(columnas_faltantes)}")
-        st.stop()
+    for c in ("oc_totales_sgm", "oc_desde_connexa"):
+        if c in df_prop.columns:
+            df_prop[c] = pd.to_numeric(df_prop[c], errors="coerce").fillna(0.0)
 
-    total_sgm = int(df_prop["oc_totales_sgm"].sum())
-    total_connexa = int(df_prop["oc_desde_connexa"].sum())
-    prop_global = total_connexa / total_sgm if total_sgm > 0 else 0.0
+    total_sgm = int(df_prop.get("oc_totales_sgm", 0).sum())
+    total_connexa = int(df_prop.get("oc_desde_connexa", 0).sum())
+    prop_global = (total_connexa / total_sgm) if total_sgm > 0 else 0.0
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -492,58 +345,213 @@ else:
     with col3:
         st.metric("% global originado en CONNEXA", value=f"{prop_global * 100:,.1f} %")
 
-    df_prop["proporcion_pct"] = df_prop["proporcion_ci"] * 100
+    # Serie mensual
+    if "proporcion_ci" in df_prop.columns:
+        df_prop["proporcion_pct"] = pd.to_numeric(
+            df_prop["proporcion_ci"], errors="coerce"
+        ).fillna(0.0) * 100.0
+        fig_prop = px.line(
+            df_prop,
+            x="mes",
+            y="proporcion_pct",
+            markers=True,
+            title="% de OC SGM originadas en CONNEXA (mensual)",
+        )
+        fig_prop.update_layout(xaxis_title="Mes", yaxis_title="Proporción (%)")
+        st.plotly_chart(fig_prop, use_container_width=True)
 
-    fig_prop = px.line(
-        df_prop,
-        x="mes",
-        y="proporcion_pct",
-        markers=True,
-        title="% de OC SGM originadas en CONNEXA (mensual)",
-    )
-    fig_prop.update_layout(xaxis_title="Mes", yaxis_title="Proporción (%)")
-    st.plotly_chart(fig_prop, width='content')
 
-# -------------------------
-# Sección 4: Top compradores y proveedores
-# -------------------------
+# =======================================================
+# 4. Sección GESTIÓN DE LOS COMPRADORES
+# =======================================================
 st.markdown("---")
-st.markdown("## 4. Top compradores y proveedores (uso de CONNEXA)")
+st.markdown("## 2. Gestión de los compradores")
+
+df_rk_comp_oc, df_rk_comp_fp, df_prod_comp = load_compradores(desde, hasta)
 
 col_left, col_right = st.columns(2)
 
+# -------------------------
+# 2.1 Ranking por OC Connexa
+# -------------------------
 with col_left:
-    st.markdown("### Top compradores por OC CONNEXA")
-    df_rk_comp = fetch_ranking_compradores_oc(desde, hasta, topn=5)
-    if df_rk_comp.empty:
-        st.info("Sin datos de ranking de compradores para el rango seleccionado.")
+    st.markdown("### 2.1 Ranking por OC generadas en CONNEXA")
+    if df_rk_comp_oc.empty:
+        st.info("Sin datos de ranking de compradores por OC CONNEXA.")
     else:
-        y_col = "comprador" if "comprador" in df_rk_comp.columns else "c_comprador"
+        # Se espera columnas: comprador, oc_total, bultos_total
+        df_plot = df_rk_comp_oc.copy()
+        if "comprador" not in df_plot.columns:
+            # fallback por si la query se redefine
+            if "c_comprador" in df_plot.columns:
+                df_plot["comprador"] = df_plot["c_comprador"].astype(str)
+            else:
+                df_plot["comprador"] = df_plot.index.astype(str)
+
         fig_c = px.bar(
-            df_rk_comp.sort_values("oc_total"),
+            df_plot.sort_values("oc_total"),
             x="oc_total",
-            y=y_col,
+            y="comprador",
             orientation="h",
-            title="Top 5 compradores por OC CONNEXA",
+            title="Top compradores por # OC CONNEXA",
             text="oc_total",
         )
         fig_c.update_layout(xaxis_title="# OC CONNEXA", yaxis_title="")
-        st.plotly_chart(fig_c, width='content')
+        st.plotly_chart(fig_c, use_container_width=True)
 
+        with st.expander("Detalle ranking OC CONNEXA"):
+            st.dataframe(df_plot, use_container_width=True)
+
+
+# -------------------------
+# 2.2 Ranking por Forecast → Propuesta
+# -------------------------
 with col_right:
-    st.markdown("### Top proveedores por OC SGM desde CONNEXA")
-    df_rk_prov = fetch_ranking_proveedores(desde, hasta, topn=5)
-    if df_rk_prov.empty:
-        st.info("Sin datos de proveedores para el rango seleccionado.")
+    st.markdown("### 2.2 Ranking por uso de Forecast → Propuesta")
+    if df_rk_comp_fp.empty:
+        st.info("Sin datos de ranking de compradores por propuestas.")
     else:
-        df_rk_prov["label"] = df_rk_prov["c_proveedor"].astype(str)
-        fig_p = px.bar(
-            df_rk_prov.sort_values("bultos_total"),
+        # Espera columnas: comprador, propuestas, monto_total, p50_ajuste_min, p90_ajuste_min
+        df_plot = df_rk_comp_fp.copy()
+        if "comprador" not in df_plot.columns:
+            df_plot["comprador"] = df_plot.index.astype(str)
+
+        fig_fp_rk = px.bar(
+            df_plot.sort_values("propuestas"),
+            x="propuestas",
+            y="comprador",
+            orientation="h",
+            title="Top compradores por # Propuestas",
+            text="propuestas",
+        )
+        fig_fp_rk.update_layout(xaxis_title="# Propuestas", yaxis_title="")
+        st.plotly_chart(fig_fp_rk, use_container_width=True)
+
+        with st.expander("Detalle ranking Forecast → Propuesta"):
+            st.dataframe(df_plot, use_container_width=True)
+
+
+# -------------------------
+# 2.3 Productividad mensual por comprador (tiempos)
+# -------------------------
+st.markdown("### 2.3 Productividad y tiempos de gestión por comprador (mensual)")
+
+if df_prod_comp.empty:
+    st.info("Sin datos de productividad de compradores en el rango seleccionado.")
+else:
+    # Espera columnas: mes, comprador, propuestas, monto_total, p50_ajuste_min, p90_ajuste_min, p50_lead_min, avg_exec_min
+    if "mes" in df_prod_comp.columns:
+        df_prod_comp["mes"] = pd.to_datetime(df_prod_comp["mes"])
+
+    # Resumen global: promedio de P50/P90 de ajuste
+    df_kpi = df_prod_comp.copy()
+    for c in ("p50_ajuste_min", "p90_ajuste_min", "p50_lead_min", "avg_exec_min"):
+        if c in df_kpi.columns:
+            df_kpi[c] = pd.to_numeric(df_kpi[c], errors="coerce")
+
+    kpi_p50 = float(df_kpi["p50_ajuste_min"].median()) if "p50_ajuste_min" in df_kpi.columns else 0.0
+    kpi_p90 = float(df_kpi["p90_ajuste_min"].median()) if "p90_ajuste_min" in df_kpi.columns else 0.0
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.metric("P50 tiempo de ajuste (min)", value=f"{kpi_p50:,.1f}")
+    with col_b:
+        st.metric("P90 tiempo de ajuste (min)", value=f"{kpi_p90:,.1f}")
+
+    # Gráfico opcional: propuestas por mes y comprador
+    fig_prod = px.bar(
+        df_prod_comp,
+        x="mes",
+        y="propuestas",
+        color="comprador",
+        title="Propuestas por comprador (mensual)",
+    )
+    fig_prod.update_layout(xaxis_title="Mes", yaxis_title="# Propuestas")
+    st.plotly_chart(fig_prod, use_container_width=True)
+
+    with st.expander("Detalle productividad compradores (mensual)"):
+        st.dataframe(df_prod_comp, use_container_width=True)
+
+
+# =======================================================
+# 5. Sección INCORPORACIÓN DE PROVEEDORES
+# =======================================================
+st.markdown("---")
+st.markdown("## 3. Incorporación de proveedores")
+
+df_rk_prov, df_prop_prov = load_proveedores(desde, hasta)
+
+col_p_left, col_p_right = st.columns(2)
+
+# -------------------------
+# 3.1 Ranking de proveedores abastecidos vía CONNEXA
+# -------------------------
+with col_p_left:
+    st.markdown("### 3.1 Top proveedores abastecidos vía CONNEXA → SGM")
+    if df_rk_prov.empty:
+        st.info("Sin datos de proveedores abastecidos vía CONNEXA en el rango seleccionado.")
+    else:
+        # Espera columnas: c_proveedor, oc_distintas, bultos_total, label
+        df_plot = df_rk_prov.copy()
+        if "label" not in df_plot.columns and "c_proveedor" in df_plot.columns:
+            df_plot["label"] = df_plot["c_proveedor"].astype(str)
+
+        fig_prov = px.bar(
+            df_plot.sort_values("bultos_total"),
             x="bultos_total",
             y="label",
             orientation="h",
-            title="Top 5 proveedores por bultos en OC SGM desde CONNEXA",
+            title="Top proveedores por bultos en OC SGM desde CONNEXA",
             text="bultos_total",
         )
-        fig_p.update_layout(xaxis_title="Bultos", yaxis_title="Proveedor")
-        st.plotly_chart(fig_p, width='content')
+        fig_prov.update_layout(xaxis_title="Bultos", yaxis_title="Proveedor")
+        st.plotly_chart(fig_prov, use_container_width=True)
+
+        with st.expander("Detalle ranking de proveedores (CI → SGM)"):
+            st.dataframe(df_plot, use_container_width=True)
+
+
+# -------------------------
+# 3.2 % de proveedores gestionados vía CONNEXA
+# -------------------------
+with col_p_right:
+    st.markdown("### 3.2 % de proveedores gestionados vía CONNEXA sobre total SGM")
+
+    if df_prop_prov.empty:
+        st.info("Sin datos de proveedores en SGM / CONNEXA para el rango seleccionado.")
+    else:
+        if "mes" in df_prop_prov.columns:
+            df_prop_prov["mes"] = pd.to_datetime(df_prop_prov["mes"])
+
+        for c in ("prov_totales_sgm", "prov_desde_ci"):
+            if c in df_prop_prov.columns:
+                df_prop_prov[c] = pd.to_numeric(df_prop_prov[c], errors="coerce").fillna(0)
+
+        total_prov_sgm = int(df_prop_prov.get("prov_totales_sgm", 0).sum())
+        total_prov_ci = int(df_prop_prov.get("prov_desde_ci", 0).sum())
+        prop_global_prov = (total_prov_ci / total_prov_sgm) if total_prov_sgm > 0 else 0.0
+
+        st.metric(
+            "% global de proveedores gestionados vía CONNEXA",
+            value=f"{prop_global_prov * 100:,.1f} %",
+        )
+
+        if "proporcion_ci_prov" in df_prop_prov.columns:
+            df_prop_prov["proporcion_ci_prov"] = pd.to_numeric(
+                df_prop_prov["proporcion_ci_prov"], errors="coerce"
+            ).fillna(0.0)
+
+            df_prop_prov["proporcion_pct"] = df_prop_prov["proporcion_ci_prov"] * 100.0
+
+            fig_prop_prov = px.line(
+                df_prop_prov,
+                x="mes",
+                y="proporcion_pct",
+                markers=True,
+                title="% de proveedores gestionados vía CONNEXA (mensual)",
+            )
+            fig_prop_prov.update_layout(
+                xaxis_title="Mes",
+                yaxis_title="Proporción (%)",
+            )
+            st.plotly_chart(fig_prop_prov, use_container_width=True)
