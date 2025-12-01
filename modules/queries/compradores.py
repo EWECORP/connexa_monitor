@@ -125,13 +125,13 @@ LIMIT :topn;
 SQL_RANKING_COMPRADORES_RESUMEN = text("""
 SELECT
     c_comprador,
-    COUNT(DISTINCT c_compra_connexa)::bigint         AS oc_total_connexa,
-    SUM(COALESCE(q_bultos_kilos_diarco,0))::numeric  AS bultos_total_connexa
+    COUNT(DISTINCT c_compra_connexa)::bigint         AS total_oc,
+    SUM(COALESCE(q_bultos_kilos_diarco,0))::numeric  AS total_bultos 
 FROM public.t080_oc_precarga_connexa
 WHERE f_alta_sist >= :desde
   AND f_alta_sist <  (:hasta + INTERVAL '1 day')
 GROUP BY c_comprador
-ORDER BY oc_total_connexa DESC
+ORDER BY total_oc DESC
 LIMIT :topn;
 """)
 
@@ -217,7 +217,7 @@ def get_ranking_compradores_resumen(
 
     Columnas devueltas:
       - c_comprador (Int64)
-      - oc_total_connexa (Int64)
+      - total_oc (Int64)
       - bultos_connexa (numeric)
     """
     params = {"desde": desde, "hasta": hasta, "topn": topn}
@@ -231,7 +231,7 @@ def get_ranking_compradores_resumen(
 
     # Normalización de tipos
     df["c_comprador"] = pd.to_numeric(df["c_comprador"], errors="coerce").astype("Int64")
-    df["oc_total_connexa"] = pd.to_numeric(df["oc_total_connexa"], errors="coerce").fillna(0).astype("Int64")
+    df["total_oc"] = pd.to_numeric(df["total_oc"], errors="coerce").fillna(0).astype("Int64")
 
     # Renombramos bultos_total_connexa → bultos_connexa para que concuerde con el resto del código
     if "bultos_total_connexa" in df.columns:

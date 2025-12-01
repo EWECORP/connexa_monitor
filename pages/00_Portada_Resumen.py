@@ -379,28 +379,62 @@ with col_left:
     if df_rk_comp_oc.empty:
         st.info("Sin datos de ranking de compradores por OC CONNEXA.")
     else:
-        # Se espera columnas: comprador, oc_total, bultos_total
         df_plot = df_rk_comp_oc.copy()
+
+        # Normalizar nombres de columnas: minúsculas y sin espacios
+        df_plot.columns = [c.strip().lower() for c in df_plot.columns]
+
+        # Intentar identificar la columna de comprador
         if "comprador" not in df_plot.columns:
-            # fallback por si la query se redefine
             if "c_comprador" in df_plot.columns:
                 df_plot["comprador"] = df_plot["c_comprador"].astype(str)
             else:
+                # fallback por si la query no trae un código claro
                 df_plot["comprador"] = df_plot.index.astype(str)
 
-        fig_c = px.bar(
-            df_plot.sort_values("oc_total"),
-            x="oc_total",
-            y="comprador",
-            orientation="h",
-            title="Top compradores por # OC CONNEXA",
-            text="oc_total",
-        )
-        fig_c.update_layout(xaxis_title="# OC CONNEXA", yaxis_title="")
-        st.plotly_chart(fig_c, use_container_width=True)
+        # Buscar candidatos de columna "total_oc"
+        oc_candidates = [
+            c for c in df_plot.columns
+            if c in ("total_oc", "oc", "oc_sgm", "oc_connexa", "oc_total", "oc_distintas")
+        ]
 
-        with st.expander("Detalle ranking OC CONNEXA"):
-            st.dataframe(df_plot, use_container_width=True)
+        # Buscar candidatos de columna "total_bultos"
+        bultos_candidates = [
+            c for c in df_plot.columns
+            if c in ("total_bultos", "bultos", "bultos_sgm", "bultos_connexa")
+        ]
+
+        if not oc_candidates:
+            st.warning(
+                "No se encontró una columna equivalente a 'total_oc' en el ranking de compradores.\n\n"
+                f"Columnas disponibles: {list(df_plot.columns)}"
+            )
+            with st.expander("Ver datos crudos de ranking compradores OC"):
+                st.dataframe(df_plot, use_container_width=True)
+        else:
+            oc_col = oc_candidates[0]
+            # Renombrar a nombres estándar internos
+            rename_map = {oc_col: "total_oc"}
+            if bultos_candidates:
+                rename_map[bultos_candidates[0]] = "total_bultos"
+            df_plot = df_plot.rename(columns=rename_map)
+
+            # Asegurar que 'total_oc' es numérico
+            df_plot["total_oc"] = pd.to_numeric(df_plot["total_oc"], errors="coerce").fillna(0)
+
+            fig_c = px.bar(
+                df_plot.sort_values("total_oc"),
+                x="total_oc",
+                y="comprador",
+                orientation="h",
+                title="Top compradores por # OC CONNEXA",
+                text="total_oc",
+            )
+            fig_c.update_layout(xaxis_title="# OC CONNEXA", yaxis_title="")
+            st.plotly_chart(fig_c, use_container_width=True)
+
+            with st.expander("Detalle ranking OC CONNEXA"):
+                st.dataframe(df_plot, use_container_width=True)
 
 
 # -------------------------
@@ -491,18 +525,18 @@ with col_p_left:
     if df_rk_prov.empty:
         st.info("Sin datos de proveedores abastecidos vía CONNEXA en el rango seleccionado.")
     else:
-        # Espera columnas: c_proveedor, oc_distintas, bultos_total, label
+        # Espera columnas: c_proveedor, oc_distintas, total_bultos, label
         df_plot = df_rk_prov.copy()
         if "label" not in df_plot.columns and "c_proveedor" in df_plot.columns:
             df_plot["label"] = df_plot["c_proveedor"].astype(str)
 
         fig_prov = px.bar(
-            df_plot.sort_values("bultos_total"),
-            x="bultos_total",
+            df_plot.sort_values("total_bultos"),
+            x="total_bultos",
             y="label",
             orientation="h",
             title="Top proveedores por bultos en OC SGM desde CONNEXA",
-            text="bultos_total",
+            text="total_bultos",
         )
         fig_prov.update_layout(xaxis_title="Bultos", yaxis_title="Proveedor")
         st.plotly_chart(fig_prov, use_container_width=True)
