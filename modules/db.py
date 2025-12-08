@@ -69,7 +69,7 @@ def get_connexa_engine() -> Engine:
     pwd  = os.getenv("CONNEXA_PG_PASSWORD", os.getenv("PGP_PASSWORD"))
     if not all([host, port, db, usr, pwd]):
         raise RuntimeError("Faltan variables de entorno para Postgres connexa_platform.")
-    url = _build_pg_url(host, port, db, usr, pwd)
+    url = _build_pg_url(host, port, db, usr, pwd) # type: ignore
     return create_engine(url, pool_pre_ping=True)
 
 @st.cache_resource(show_spinner=False)
@@ -81,7 +81,7 @@ def get_diarco_engine() -> Engine:
     pwd  = os.getenv("DIARCO_PG_PASSWORD", os.getenv("PG_PASSWORD"))
     if not all([host, port, db, usr, pwd]):
         raise RuntimeError("Faltan variables de entorno para Postgres diarco_data.")
-    url = _build_pg_url(host, port, db, usr, pwd)
+    url = _build_pg_url(host, port, db, usr, pwd) # type: ignore
     return create_engine(url, pool_pre_ping=True)
 
 @st.cache_resource(show_spinner=False)
@@ -96,7 +96,7 @@ def get_sqlserver_engine() -> Engine:
     driver = os.getenv("SQL_DRIVER","ODBC Driver 18 for SQL Server")
 
     if not (host and db and user and pw):
-        return None
+        return None # type: ignore
 
     params = urllib.parse.quote_plus(
         f"DRIVER={driver};SERVER={host},{port};DATABASE={db};UID={user};PWD={pw};Encrypt=yes;TrustServerCertificate=yes;"

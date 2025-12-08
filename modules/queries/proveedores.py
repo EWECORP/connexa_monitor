@@ -197,19 +197,23 @@ ORDER BY t.f_alta_date DESC, t.c_proveedor;
 # ============================================================
 
 SQL_PG_CONNEXA_PROV = text("""
-SELECT 
-    c_proveedor,
-    COUNT(DISTINCT c_compra_connexa)       AS pedidos_connexa,
-    SUM(COALESCE(q_bultos_kilos_diarco,0)) AS bultos_connexa
-FROM public.t080_oc_precarga_connexa
+SELECT
+    O.c_proveedor,
+    P.n_proveedor,
+    COUNT(DISTINCT O.c_compra_connexa) AS pedidos_connexa, -- cuenta únicos
+    SUM(COALESCE(O.q_bultos_kilos_diarco, 0)) AS bultos_connexa -- suma segura
+FROM public.t080_oc_precarga_connexa O
+LEFT JOIN src.t020_proveedor P
+       ON O.c_proveedor = P.c_proveedor
 WHERE f_alta_sist >= :desde 
   AND f_alta_sist <  (:hasta)
-GROUP BY c_proveedor;
+GROUP BY O.c_proveedor, P.n_proveedor;
 """)
 
 SQL_SGM_CONNEXA_PROV = text("""
 SELECT 
-    c_proveedor,
+    base.c_proveedor,
+	P.n_proveedor,
     COUNT(DISTINCT oc_sgm) AS oc_sgm_generadas,
     SUM(q_bultos_ci)       AS bultos_sgm
 FROM (
@@ -218,10 +222,13 @@ FROM (
         CONCAT(CAST(U_PREFIJO_OC AS varchar(32)), '-', CAST(U_SUFIJO_OC AS varchar(32))) AS oc_sgm,
         COALESCE(Q_BULTOS_KILOS_DIARCO,0) AS q_bultos_ci
     FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
+		
     WHERE F_ALTA_SIST >= :desde
       AND F_ALTA_SIST <  :hasta
 ) AS base
-GROUP BY c_proveedor;
+LEFT JOIN [repl].[T020_PROVEEDOR] P ON base.c_proveedor = P.c_proveedor
+	
+GROUP BY base.c_proveedor, P.n_proveedor;
 """)
 
 

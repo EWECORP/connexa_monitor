@@ -84,7 +84,7 @@ def get_connexa_engine() -> Engine:
     pwd  = os.getenv("CONNEXA_PG_PASSWORD", os.getenv("PGP_PASSWORD"))
     if not all([host, port, db, usr, pwd]):
         raise RuntimeError("Faltan variables de entorno para Postgres connexa_platform.")
-    url = _build_pg_url(host, port, db, usr, pwd)
+    url = _build_pg_url(host, port, db, usr, pwd) # type: ignore
     return create_engine(url, pool_pre_ping=True)
 
 @st.cache_resource(show_spinner=False)
@@ -96,7 +96,7 @@ def get_diarco_engine() -> Engine:
     pwd  = os.getenv("DIARCO_PG_PASSWORD", os.getenv("PG_PASSWORD"))
     if not all([host, port, db, usr, pwd]):
         raise RuntimeError("Faltan variables de entorno para Postgres diarco_data.")
-    url = _build_pg_url(host, port, db, usr, pwd)
+    url = _build_pg_url(host, port, db, usr, pwd) # type: ignore
     return create_engine(url, pool_pre_ping=True)
 
 @st.cache_resource(show_spinner=False)
@@ -111,7 +111,7 @@ def get_sqlserver_engine() -> Engine:
     driver = os.getenv("SQL_DRIVER","ODBC Driver 18 for SQL Server")
 
     if not (host and db and user and pw):
-        return None
+        return None # type: ignore
 
     params = urllib.parse.quote_plus(
         f"DRIVER={driver};SERVER={host},{port};DATABASE={db};UID={user};PWD={pw};Encrypt=yes;TrustServerCertificate=yes;"
@@ -136,10 +136,19 @@ WHERE 1=1
 """
 
 SQL_DISTINCT_SUPPLIERS = """
-SELECT DISTINCT ext_code_supplier
-FROM public.view_spl_supply_purchase_proposal_supplier_site
-ORDER BY 1
+SELECT ext_code_supplier
+FROM (
+    SELECT DISTINCT ext_code_supplier
+    FROM public.view_spl_supply_purchase_proposal_supplier_site
+) t
+ORDER BY ext_code_supplier::int;
 """
+
+# SQL_DISTINCT_SUPPLIERS = """
+# SELECT DISTINCT ext_code_supplier
+# FROM public.view_spl_supply_purchase_proposal_supplier_site
+# ORDER BY 1
+# """
 
 SQL_DISTINCT_PROPOSALS = """
 SELECT DISTINCT proposal_number
@@ -276,10 +285,10 @@ def kpi_triplet(df: pd.DataFrame, label_prefix: str):
     with c1:
         st.metric(f"{label_prefix} • Total líneas", f"{len(df):,}")
     with c2:
-        total_units = pd.to_numeric(df.get("total_units"), errors="coerce").fillna(0).sum()
+        total_units = pd.to_numeric(df.get("total_units"), errors="coerce").fillna(0).sum() # type: ignore
         st.metric(f"{label_prefix} • Unidades", f"{int(total_units):,}")
     with c3:
-        total_amount = pd.to_numeric(df.get("total_amount"), errors="coerce").fillna(0).sum()
+        total_amount = pd.to_numeric(df.get("total_amount"), errors="coerce").fillna(0).sum() # type: ignore
         st.metric(f"{label_prefix} • Importe", f"{round(float(total_amount),2):,}")
 
 def normalizar_columnas_uuid(df: pd.DataFrame) -> pd.DataFrame:
@@ -372,7 +381,7 @@ def main():
             .assign(q_bultos_kilos_diarco=pd.to_numeric(df_pre_pg["q_bultos_kilos_diarco"], errors="coerce").fillna(0))
             .groupby(["c_articulo", "c_sucu_empr"], as_index=False)["q_bultos_kilos_diarco"].sum()
             .sort_values(["c_articulo", "c_sucu_empr"]) 
-        )
+        ) # type: ignore
         c1, c2 = st.columns((2,1))
         with c1:
             st.subheader("Detalle consolidado por Artículo/Sucursal")

@@ -22,8 +22,14 @@ from modules.queries.proveedores import (
     get_proporcion_proveedores_ci_mensual,  # SQL_SGM_I4_PROV_MENSUAL (mensual)
     get_detalle_proveedores_ci,             # SQL_SGM_I4_PROV_DETALLE (detalle)
     get_proveedores_ci_sin_cabecera,        # SQL_SGM_I4_PROV_SIN_CABE (diagnóstico)
+    get_ranking_proveedores_pg,                # SQL_PG_CONNEXA_PROV_RANKING (ranking Connexa)
+    get_ranking_proveedores_resumen,          # SQL_SGM_I4_PROV_RANKING (ranking CI → SGM)
     # get_ventas_proveedor  # si luego quieren usarlo para drill-down
 )
+
+# Motores de base de datos
+pg_diarco = get_pg_engine()
+eng_sgm   = get_sqlserver_engine()
 
 # -------------------------------------------------------
 # Configuración general de la página
@@ -106,6 +112,17 @@ def load_proveedores(desde: date, hasta: date):
         df_sin_cabecera,
     )
 
+@st.cache_data(ttl=ttl, show_spinner=False)
+def _fetch_ranking_proveedores_connexa(desde: date, hasta: date, topn: int = 10) -> pd.DataFrame:
+    if pg_diarco is None:
+        return pd.DataFrame()
+    return get_ranking_proveedores_pg(pg_diarco, desde, hasta, topn=topn)
+
+@st.cache_data(ttl=ttl, show_spinner=False)
+def _fetch_ranking_proveedores_ci(desde: date, hasta: date, topn: int = 10) -> pd.DataFrame:
+    if eng_sgm is None:
+        return pd.DataFrame()
+    return get_ranking_proveedores_resumen(eng_sgm, desde, hasta, topn=topn)
 
 # =======================================================
 # 2. Carga y preparación de datos
@@ -223,8 +240,8 @@ st.markdown("---")
 # 4. Tabs de análisis
 # =======================================================
 
-tab1, tab2, tab3 = st.tabs(
-    ["📊 Visión general", "🏅 Ranking de proveedores", "📋 Detalle y diagnóstico"]
+tab1, tab2, tab3 , tab4= st.tabs(
+    ["📊 Visión general", "🏅 Ranking de proveedores", "🏅 Ranking Abastecimiento", "📋 Detalle y diagnóstico"]
 )
 
 # ---------------------------
@@ -294,9 +311,42 @@ with tab1:
         )
 
 # ---------------------------
-# TAB 2: Ranking de proveedores
+# TAB 2: Ranking de proveedores (volumen y adopción)
 # ---------------------------
 with tab2:
+    st.subheader("Ranking de proveedores (volumen y adopción)")
+
+    st.markdown("### Top proveedores por bultos desde Connexa (PostgreSQL)")
+    df_rk_pg = _fetch_ranking_proveedores_connexa(desde, hasta, topn=20)
+
+    if df_rk_pg.empty:
+        st.info("Sin datos de ranking de proveedores Connexa para el rango seleccionado.")
+    else:
+        df_plot = df_rk_pg.copy()
+        df_plot = df_plot.sort_values("bultos_total", ascending=False)
+
+        fig_pg = px.bar(
+            df_plot,
+            x="bultos_total",
+            y="proveedor",
+            orientation="h",
+            title="Top 10 proveedores por bultos desde Connexa",
+            text="bultos_total",
+        )
+        fig_pg.update_layout(
+            xaxis_title="Bultos Connexa",
+            yaxis_title="Proveedor (Connexa)",
+        )
+        # clave única para este gráfico
+        st.plotly_chart(fig_pg, use_container_width=True, key="tab4_pg_ranking")
+
+        with st.expander("Ver tabla completa — Ranking Connexa"):
+            st.dataframe(df_plot, use_container_width=True, hide_index=True)
+
+# ---------------------------
+# TAB 3: Ranking de proveedores abastecidos desde Connexa
+# ---------------------------
+with tab3:
     st.subheader("Ranking de proveedores abastecidos desde Connexa")
 
     df_rank = df_master.copy()
@@ -353,9 +403,9 @@ with tab2:
             st.info("No hay datos de pedidos Connexa para ranking de proveedores.")
 
 # ---------------------------
-# TAB 3: Detalle y diagnóstico
+# TAB 4: Detalle y diagnóstico
 # ---------------------------
-with tab3:
+with tab4:
     st.subheader("Detalle de proveedores gestionados vía Connexa → SGM")
 
     st.markdown("### Detalle de proveedores con Connexa y OC en SGM")
@@ -389,3 +439,4 @@ with tab3:
             "No se detectaron casos de proveedores con registros CI sin cabecera T080 "
             "en el rango seleccionado."
         )
+

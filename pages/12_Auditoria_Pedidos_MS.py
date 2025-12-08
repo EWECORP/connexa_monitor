@@ -140,11 +140,21 @@ WHERE 1=1
   {proposal_filter}
 """
 # Consulta para listar suppliers únicos
+# SQL_DISTINCT_SUPPLIERS = """
+# SELECT DISTINCT ext_code_supplier
+# FROM supply_planning.view_spl_supply_purchase_proposal_supplier_site
+# ORDER BY 1
+# """
+
 SQL_DISTINCT_SUPPLIERS = """
-SELECT DISTINCT ext_code_supplier
-FROM supply_planning.view_spl_supply_purchase_proposal_supplier_site
-ORDER BY 1
+SELECT ext_code_supplier
+FROM (
+    SELECT DISTINCT ext_code_supplier
+    FROM public.view_spl_supply_purchase_proposal_supplier_site
+) t
+ORDER BY ext_code_supplier::int;
 """
+
 # Consulta para listar proposals por supplier
 SQL_DISTINCT_PROPOSALS = """
 SELECT DISTINCT proposal_number
