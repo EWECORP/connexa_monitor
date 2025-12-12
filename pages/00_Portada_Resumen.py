@@ -247,10 +247,10 @@ else:
             title="Tasa de conversión Forecast → Propuesta (mensual, %)",
         )
         fig_fp.update_layout(xaxis_title="Mes", yaxis_title="Conversión (%)")
-        st.plotly_chart(fig_fp, use_container_width=True)
+        st.plotly_chart(fig_fp, width='stretch')
 
     with st.expander("Detalle mensual Forecast → Propuesta"):
-        st.dataframe(df_fp, use_container_width=True)
+        st.dataframe(df_fp, width='stretch')
 
 
 # -------------------------
@@ -299,7 +299,7 @@ else:
         yaxis_title="Cantidad",
         legend_title="Serie",
     )
-    st.plotly_chart(fig_emb1, use_container_width=True)
+    st.plotly_chart(fig_emb1, width='stretch')
 
     # Conversión pedidos → OC
     if "tasa_conv_pedidos_oc" in df_emb.columns:
@@ -314,7 +314,7 @@ else:
             title="Tasa de conversión Pedidos CONNEXA → OC SGM (mensual, %)",
         )
         fig_emb2.update_layout(xaxis_title="Mes", yaxis_title="Conversión (%)")
-        st.plotly_chart(fig_emb2, use_container_width=True)
+        st.plotly_chart(fig_emb2, width='stretch')
 
 
 # -------------------------
@@ -358,7 +358,7 @@ else:
             title="% de OC SGM originadas en CONNEXA (mensual)",
         )
         fig_prop.update_layout(xaxis_title="Mes", yaxis_title="Proporción (%)")
-        st.plotly_chart(fig_prop, use_container_width=True)
+        st.plotly_chart(fig_prop, width='stretch')
 
 
 # =======================================================
@@ -410,7 +410,7 @@ with col_left:
                 f"Columnas disponibles: {list(df_plot.columns)}"
             )
             with st.expander("Ver datos crudos de ranking compradores OC"):
-                st.dataframe(df_plot, use_container_width=True)
+                st.dataframe(df_plot, width='stretch')
         else:
             oc_col = oc_candidates[0]
             # Renombrar a nombres estándar internos
@@ -431,10 +431,10 @@ with col_left:
                 text="total_oc",
             )
             fig_c.update_layout(xaxis_title="# OC CONNEXA", yaxis_title="")
-            st.plotly_chart(fig_c, use_container_width=True)
+            st.plotly_chart(fig_c, width='stretch')
 
             with st.expander("Detalle ranking OC CONNEXA"):
-                st.dataframe(df_plot, use_container_width=True)
+                st.dataframe(df_plot, width='stretch')
 
 
 # -------------------------
@@ -459,10 +459,10 @@ with col_right:
             text="propuestas",
         )
         fig_fp_rk.update_layout(xaxis_title="# Propuestas", yaxis_title="")
-        st.plotly_chart(fig_fp_rk, use_container_width=True)
+        st.plotly_chart(fig_fp_rk, width='stretch')
 
         with st.expander("Detalle ranking Forecast → Propuesta"):
-            st.dataframe(df_plot, use_container_width=True)
+            st.dataframe(df_plot, width='stretch')
 
 
 # -------------------------
@@ -501,10 +501,10 @@ else:
         title="Propuestas por comprador (mensual)",
     )
     fig_prod.update_layout(xaxis_title="Mes", yaxis_title="# Propuestas")
-    st.plotly_chart(fig_prod, use_container_width=True)
+    st.plotly_chart(fig_prod, width='stretch')
 
     with st.expander("Detalle productividad compradores (mensual)"):
-        st.dataframe(df_prod_comp, use_container_width=True)
+        st.dataframe(df_prod_comp, width='stretch')
 
 
 # =======================================================
@@ -539,10 +539,10 @@ with col_p_left:
             text="total_bultos",
         )
         fig_prov.update_layout(xaxis_title="Bultos", yaxis_title="Proveedor")
-        st.plotly_chart(fig_prov, use_container_width=True)
+        st.plotly_chart(fig_prov, width='stretch')
 
         with st.expander("Detalle ranking de proveedores (CI → SGM)"):
-            st.dataframe(df_plot, use_container_width=True)
+            st.dataframe(df_plot, width='stretch')
 
 
 # -------------------------
@@ -588,4 +588,4 @@ with col_p_right:
                 xaxis_title="Mes",
                 yaxis_title="Proporción (%)",
             )
-            st.plotly_chart(fig_prop_prov, use_container_width=True)
+            st.plotly_chart(fig_prop_prov, width='stretch')

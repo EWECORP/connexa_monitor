@@ -22,11 +22,11 @@ import pandas as pd
 import numpy as np
 
 from modules.db import get_diarco_engine
-from modules.queries import (
+from modules.queries.stock_ventas import (
     QRY_MV_STOCK_CARTERA_30D,
     QRY_COMPPRADORES,
     QRY_PROVEEDORES,
-)
+    )
 
 # ============================================================
 # CONFIGURACIÓN GENERAL

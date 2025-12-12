@@ -117,72 +117,77 @@ QRY_PRODUCTOS_VIGENTES = """
 """
 
 QRY_VENTAS_30D = """
-SELECT
-    codigo_articulo,
-    sucursal AS codigo_sucursal,
-    SUM(unidades) AS unidades_30d,
-    COUNT(DISTINCT fecha) AS dias_con_venta,
-    SUM(unidades) / 30.0 AS venta_promedio_diaria_30d
-FROM src.base_ventas_extendida
-WHERE fecha >= CURRENT_DATE - INTERVAL '30 days'
-GROUP BY
-    codigo_articulo,
-    sucursal;
+  SELECT
+      codigo_articulo,
+      sucursal AS codigo_sucursal,
+      SUM(unidades) AS unidades_30d,
+      COUNT(DISTINCT fecha) AS dias_con_venta,
+      SUM(unidades) / 30.0 AS venta_promedio_diaria_30d
+  FROM src.base_ventas_extendida
+  WHERE fecha >= CURRENT_DATE - INTERVAL '30 days'
+  GROUP BY
+      codigo_articulo,
+      sucursal;
 """
 QRY_MV_STOCK_CARTERA_30D = """
-SELECT *
-FROM datamart.mv_stock_cartera_30d;
-"""
+  SELECT *
+  FROM src.mv_stock_cartera_30d;
+  """
+
+# OJO  REFRESH MATERIALIZED VIEW CONCURRENTLY datamart.mv_stock_cartera_30d;
+SQL_refrescar = text("""
+                            REFRESH MATERIALIZED VIEW CONCURRENTLY mon.mv_stock_cartera_30d;
+""")
 
 
 # --- DDL de vistas y soportes (idempotente) ---
 DDL_VIEW_OC_GENERADAS_BASE = """
-CREATE SCHEMA IF NOT EXISTS mon;
+  CREATE SCHEMA IF NOT EXISTS mon;
 
-CREATE OR REPLACE VIEW mon.v_oc_generadas_mensual
- AS
- WITH base AS (
-         SELECT date_trunc('month'::text, (t080_oc_precarga_connexa.f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))::date AS mes,
-            t080_oc_precarga_connexa.c_comprador,
-            t080_oc_precarga_connexa.c_proveedor,
-            t080_oc_precarga_connexa.c_compra_connexa,
-            COALESCE(t080_oc_precarga_connexa.q_bultos_kilos_diarco, 0::numeric) AS q_bultos
-           FROM t080_oc_precarga_connexa
-          WHERE t080_oc_precarga_connexa.f_alta_sist IS NOT NULL
-        )
- SELECT base.mes,
-    base.c_comprador,
-    base.c_proveedor,
-    count(DISTINCT base.c_compra_connexa) AS total_oc,
-    sum(base.q_bultos) AS total_bultos
-   FROM base
-  GROUP BY base.mes, base.c_comprador, base.c_proveedor
-  ORDER BY base.mes, base.c_comprador, base.c_proveedor;
+  CREATE OR REPLACE VIEW mon.v_oc_generadas_mensual
+  AS
+  WITH base AS (
+          SELECT date_trunc('month'::text, (t080_oc_precarga_connexa.f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))::date AS mes,
+              t080_oc_precarga_connexa.c_comprador,
+              t080_oc_precarga_connexa.c_proveedor,
+              t080_oc_precarga_connexa.c_compra_connexa,
+              COALESCE(t080_oc_precarga_connexa.q_bultos_kilos_diarco, 0::numeric) AS q_bultos
+            FROM t080_oc_precarga_connexa
+            WHERE t080_oc_precarga_connexa.f_alta_sist IS NOT NULL
+          )
+  SELECT base.mes,
+      base.c_comprador,
+      base.c_proveedor,
+      count(DISTINCT base.c_compra_connexa) AS total_oc,
+      sum(base.q_bultos) AS total_bultos
+    FROM base
+    GROUP BY base.mes, base.c_comprador, base.c_proveedor
+    ORDER BY base.mes, base.c_comprador, base.c_proveedor;
 """
 
 QRY_COMPPRADORES = """
-SELECT cod_comprador, n_comprador
-FROM src.m_9_compradores;
+  SELECT cod_comprador, n_comprador
+  FROM src.m_9_compradores;
 """
 
 QRY_PROVEEDORES = """
-SELECT c_proveedor, n_proveedor
-FROM src.m_10_proveedores;
+  SELECT c_proveedor, n_proveedor
+  FROM src.m_10_proveedores;
 """
 
 # Vista extendida (nombres de comprador/proveedor)
 DDL_VIEW_OC_GENERADAS_EXT = """
-CREATE OR REPLACE VIEW mon.v_oc_generadas_mensual_ext
-AS
-SELECT v.mes,
-  v.c_comprador,
-  c.n_comprador,
-  v.c_proveedor,
-  v.total_oc,
-  v.total_bultos
-  FROM mon.v_oc_generadas_mensual v
-    LEFT JOIN src.m_9_compradores c ON v.c_comprador = c.cod_comprador::numeric
-    LEFT JOIN src.m_10_proveedores p ON v.c_proveedor = p.c_proveedor::bigint::numeric;
+  CREATE OR REPLACE VIEW mon.v_oc_generadas_mensual_ext
+  AS
+  SELECT v.mes,
+    v.c_comprador,
+    c.n_comprador,
+    v.c_proveedor,
+    v.total_oc,
+    v.total_bultos
+    FROM mon.v_oc_generadas_mensual v
+      LEFT JOIN src.m_9_compradores c ON v.c_comprador = c.cod_comprador::numeric
+      LEFT JOIN src.m_10_proveedores p ON v.c_proveedor = p.c_proveedor::bigint::numeric;
 """
 
 # Vista extendida por sucursal (para drill-down futuro)
