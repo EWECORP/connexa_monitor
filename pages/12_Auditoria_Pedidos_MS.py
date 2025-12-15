@@ -10,10 +10,10 @@ su consolidación en pre‑carga (diarco_data) y su tránsito/confirmación en S
 Entradas
 --------
 1) Postgres (connexa_platform):
-   - public.view_spl_supply_purchase_proposal_supplier_site
+   - mon.view_spl_supply_purchase_proposal_supplier_site
 
 2) Postgres (diarco_data):
-   - public.t080_oc_precarga_kikker
+   - public.t080_oc_precarga_connexa
 
 3) SQL Server (SGM):
    - [DIARCOP001].[DiarcoP].[dbo].[T080_OC_PRECARGA_KIKKER]
@@ -59,6 +59,12 @@ from sqlalchemy.exc import SQLAlchemyError
 # Para SQL Server vía pyodbc/ODBC Driver 18
 import urllib.parse
 
+from modules.db import (
+    get_sqlserver_engine,        # diarco_data (PostgreSQL)
+    get_connexa_engine,   # connexa_platform_ms (PostgreSQL)
+    get_diarco_engine,    # diarco_data (PostgreSQL)
+)
+
 # =========================
 # Configuración base / logging
 # =========================
@@ -76,54 +82,55 @@ st.set_page_config(page_title="Auditoría de Pedidos SGM", layout="wide")
 # Utilidades de conexión
 # =========================
 
-def _build_pg_url(host: str, port: str, db: str, user: str, pwd: str) -> str:
-    return f"postgresql+psycopg2://{urllib.parse.quote_plus(user)}:{urllib.parse.quote_plus(pwd)}@{host}:{port}/{db}"
+# def _build_pg_url(host: str, port: str, db: str, user: str, pwd: str) -> str:
+#     return f"postgresql+psycopg2://{urllib.parse.quote_plus(user)}:{urllib.parse.quote_plus(pwd)}@{host}:{port}/{db}"
 
-@st.cache_resource(show_spinner=False)
-def get_connexa_engine() -> Engine:
-    host = os.getenv("CONNEXA_PG_HOST", os.getenv("PGP_HOST"))
-    port = os.getenv("CONNEXA_PG_PORT", os.getenv("PGP_PORT", "5432"))
-    db   = os.getenv("CONNEXA_PG_DB",   os.getenv("PGP_DB"))
-    usr  = os.getenv("CONNEXA_PG_USER", os.getenv("PGP_USER"))
-    pwd  = os.getenv("CONNEXA_PG_PASSWORD", os.getenv("PGP_PASSWORD"))
-    if not all([host, port, db, usr, pwd]):
-        raise RuntimeError("Faltan variables de entorno para Postgres connexa_platform.")
-    url = _build_pg_url(host, port, db, usr, pwd)
-    logger.info("Conectando a Postgres connexa_platform (host=%s db=%s)", host, db)
-    return create_engine(url, pool_pre_ping=True)
+# @st.cache_resource(show_spinner=False)
+# def get_connexa_engine() -> Engine:
+#     host = os.getenv("CONNEXA_PG_HOST", os.getenv("PGP_HOST"))
+#     port = os.getenv("CONNEXA_PG_PORT", os.getenv("PGP_PORT", "5432"))
+#     db   = os.getenv("CONNEXA_PG_DB",   os.getenv("PGP_DB"))
+#     usr  = os.getenv("CONNEXA_PG_USER", os.getenv("PGP_USER"))
+#     pwd  = os.getenv("CONNEXA_PG_PASSWORD", os.getenv("PGP_PASSWORD"))
+#     if not all([host, port, db, usr, pwd]):
+#         raise RuntimeError("Faltan variables de entorno para Postgres connexa_platform.")
+#     url = _build_pg_url(host, port, db, usr, pwd)
+#     logger.info("Conectando a Postgres connexa_platform (host=%s db=%s)", host, db)
+#     return create_engine(url, pool_pre_ping=True)
 
-@st.cache_resource(show_spinner=False)
-def get_diarco_engine() -> Engine:
-    host = os.getenv("DIARCO_PG_HOST", os.getenv("PG_HOST"))
-    port = os.getenv("DIARCO_PG_PORT", os.getenv("PG_PORT", "5432"))
-    db   = os.getenv("DIARCO_PG_DB",   os.getenv("PG_DB"))
-    usr  = os.getenv("DIARCO_PG_USER", os.getenv("PG_USER"))
-    pwd  = os.getenv("DIARCO_PG_PASSWORD", os.getenv("PG_PASSWORD"))
-    if not all([host, port, db, usr, pwd]):
-        raise RuntimeError("Faltan variables de entorno para Postgres diarco_data.")
-    url = _build_pg_url(host, port, db, usr, pwd)
-    return create_engine(url, pool_pre_ping=True)
 
-@st.cache_resource(show_spinner=False)
-def get_sqlserver_engine() -> Engine:
-     # Opcional: habilitar solo si corresponde (Indicadores SGM)
-    import urllib.parse
-    host = os.getenv("SQL_SERVER")
-    port = os.getenv("SQL_PORT", "1433")
-    db   = os.getenv("SQL_DATABASE")
-    user = os.getenv("SQL_USER")
-    pw   = os.getenv("SQL_PASSWORD")
-    driver = os.getenv("SQL_DRIVER","ODBC Driver 18 for SQL Server")
+# @st.cache_resource(show_spinner=False)
+# def get_diarco_engine() -> Engine:
+#     host = os.getenv("DIARCO_PG_HOST", os.getenv("PG_HOST"))
+#     port = os.getenv("DIARCO_PG_PORT", os.getenv("PG_PORT", "5432"))
+#     db   = os.getenv("DIARCO_PG_DB",   os.getenv("PG_DB"))
+#     usr  = os.getenv("DIARCO_PG_USER", os.getenv("PG_USER"))
+#     pwd  = os.getenv("DIARCO_PG_PASSWORD", os.getenv("PG_PASSWORD"))
+#     if not all([host, port, db, usr, pwd]):
+#         raise RuntimeError("Faltan variables de entorno para Postgres diarco_data.")
+#     url = _build_pg_url(host, port, db, usr, pwd)
+#     return create_engine(url, pool_pre_ping=True)
 
-    if not (host and db and user and pw):
-        return None
+# @st.cache_resource(show_spinner=False)
+# def get_sqlserver_engine() -> Engine:
+#      # Opcional: habilitar solo si corresponde (Indicadores SGM)
+#     import urllib.parse
+#     host = os.getenv("SQL_SERVER")
+#     port = os.getenv("SQL_PORT", "1433")
+#     db   = os.getenv("SQL_DATABASE")
+#     user = os.getenv("SQL_USER")
+#     pw   = os.getenv("SQL_PASSWORD")
+#     driver = os.getenv("SQL_DRIVER","ODBC Driver 18 for SQL Server")
 
-    params = urllib.parse.quote_plus(
-        f"DRIVER={driver};SERVER={host},{port};DATABASE={db};UID={user};PWD={pw};Encrypt=yes;TrustServerCertificate=yes;"
-    )
-    url = f"mssql+pyodbc:///?odbc_connect={params}"
+#     if not (host and db and user and pw):
+#         return None
 
-    return create_engine(url, pool_pre_ping=True, fast_executemany=True)
+#     params = urllib.parse.quote_plus(
+#         f"DRIVER={driver};SERVER={host},{port};DATABASE={db};UID={user};PWD={pw};Encrypt=yes;TrustServerCertificate=yes;"
+#     )
+#     url = f"mssql+pyodbc:///?odbc_connect={params}"
+
+#     return create_engine(url, pool_pre_ping=True, fast_executemany=True)
 
 # =========================
 # Consultas
@@ -140,22 +147,19 @@ WHERE 1=1
   {proposal_filter}
 """
 # Consulta para listar suppliers únicos
-# SQL_DISTINCT_SUPPLIERS = """
-# SELECT DISTINCT ext_code_supplier
-# FROM supply_planning.view_spl_supply_purchase_proposal_supplier_site
-# ORDER BY 1
-# """
+# Sobre BASE connexa_platform (esquema mon)
 
 SQL_DISTINCT_SUPPLIERS = """
 SELECT ext_code_supplier
 FROM (
     SELECT DISTINCT ext_code_supplier
-    FROM public.view_spl_supply_purchase_proposal_supplier_site
+    FROM mon.view_spl_supply_purchase_proposal_supplier_site
 ) t
 ORDER BY ext_code_supplier::int;
 """
 
 # Consulta para listar proposals por supplier
+# Sobre BASE connexa_platform 
 SQL_DISTINCT_PROPOSALS = """
 SELECT DISTINCT proposal_number
 FROM supply_planning.view_spl_supply_purchase_proposal_supplier_site
@@ -172,6 +176,7 @@ FROM public.t080_oc_precarga_connexa
 WHERE c_compra_connexa = :proposal_number
 """
 # Consulta para leer pre‑carga desde SQL Server (T080 y T874) INPUT SGM
+# Sobre BASE SQK Server (data-sync.dbo)
 SQL_PRECarga_SQL = """
 SELECT [C_PROVEEDOR]        AS c_proveedor,
        [C_ARTICULO]         AS c_articulo,

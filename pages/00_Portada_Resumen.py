@@ -76,7 +76,7 @@ with st.sidebar:
             db = con.execute(text("select current_database()")).scalar()
             ip = con.execute(text("select host(inet_server_addr())")).scalar()
         conn_connexa = True
-        info_connexa = f"{ip} · DB: {db}"
+        info_connexa = f"{ip} · DB: {db} HOST: {eng_cnx.url.host}"
     except Exception as e:
         st.error(f"❌ Connexa Platform no disponible\n\n{e}")
 
@@ -86,8 +86,9 @@ with st.sidebar:
         with eng_diarco.connect() as con:
             db = con.execute(text("select current_database()")).scalar()
             ip = con.execute(text("select host(inet_server_addr())")).scalar()
+
         conn_diarco = True
-        info_diarco = f"{ip} · DB: {db}"
+        info_diarco = f"{ip} · DB: {db} HOST: {eng_diarco.url.host}"
     except Exception as e:
         st.error(f"❌ Diarco Data (PostgreSQL) sin conexión\n\n{e}")
 
@@ -102,7 +103,7 @@ with st.sidebar:
                         CONNECTIONPROPERTY('local_net_address') AS ip
                 """)).fetchone()
             conn_sgm = True
-            info_sgm = f"{row.ip} · DB: {row.db}"
+            info_sgm = f"{row.ip} · DB: {row.db} "
         else:
             st.warning("⚠️ Parámetros de conexión a SQL Server incompletos.")
     except Exception:
