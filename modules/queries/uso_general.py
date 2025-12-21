@@ -31,6 +31,8 @@ def _to_df(result) -> pd.DataFrame:
 # DDL / Vistas mon.* — OC generadas (Connexa → diarco_data)
 # ============================================================
 
+# En diarco_data:  La tabla t080_oc_precarga_connexa está poblada desde CONNEXA y no se eliminan registros. (Cambi Estado m_pulicado : true)
+
 DDL_VIEW_OC_GENERADAS_BASE = """
 CREATE SCHEMA IF NOT EXISTS mon;
 
@@ -53,6 +55,9 @@ CREATE OR REPLACE VIEW mon.v_oc_generadas_mensual
    FROM base
   GROUP BY base.mes, base.c_comprador, base.c_proveedor
   ORDER BY base.mes, base.c_comprador, base.c_proveedor;
+  
+ALTER TABLE mon.v_oc_generadas_mensual
+    OWNER TO postgres;
 """
 
 DLL_VIEW_OC_GENERADAS_EXT = """
@@ -116,6 +121,7 @@ IDX_DIM = [
 # ============================================================
 # DDL / Vista mon.v_forecast_propuesta_base (Connexa)
 # ============================================================
+# Vista Generada en MODELO MICROSERVICIOS
 
 DDL_V_FORECAST_PROPUESTA_BASE = """
 CREATE SCHEMA IF NOT EXISTS mon;

@@ -62,7 +62,7 @@ WITH t874 AS (
     CAST(U_SUFIJO_OC  AS varchar(32))                                     AS u_sufijo_oc,
     C_PROVEEDOR                                                           AS c_proveedor
   FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
-  WHERE F_ALTA_SIST >= CAST('2025-08-01' AS DATE)
+  WHERE F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
         AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
 ),
 cabe AS (
@@ -72,7 +72,7 @@ cabe AS (
     CAST(U_SUFIJO_OC  AS varchar(32))                                     AS u_sufijo_oc,
     C_PROVEEDOR                                                           AS c_proveedor
   FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]
-  WHERE F_ALTA_SIST >= CAST('2025-08-01' AS DATE)
+  WHERE F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
       AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
 ),
 rango AS (SELECT :desde AS d, :hasta AS h),
@@ -120,7 +120,7 @@ WITH t874 AS (
     C_PROVEEDOR                                                           AS c_proveedor_ci,
     COALESCE(Q_BULTOS_KILOS_DIARCO,0)                                     AS q_bultos_ci
   FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
-  WHERE F_ALTA_SIST >= CAST('2025-08-01' AS DATE)
+  WHERE F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
         AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
 ),
 cabe AS (
@@ -130,7 +130,7 @@ cabe AS (
     CAST(U_SUFIJO_OC  AS varchar(32))                                     AS u_sufijo_oc,
     C_PROVEEDOR                                                           AS c_proveedor_sgm
   FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]
-  WHERE F_ALTA_SIST >= CAST('2025-08-01' AS DATE)
+  WHERE F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
         AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
 ),
 rango AS (SELECT :desde AS d, :hasta AS h),
@@ -162,7 +162,7 @@ WITH t874 AS (
     CAST(U_SUFIJO_OC  AS varchar(32))                                     AS u_sufijo_oc,
     C_PROVEEDOR                                                           AS c_proveedor
   FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
-  WHERE F_ALTA_SIST >= CAST('2025-08-01' AS DATE)
+  WHERE F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
       AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
 ),
 cabe AS (
@@ -171,7 +171,7 @@ cabe AS (
     CAST(U_PREFIJO_OC AS varchar(32))                                     AS u_prefijo_oc,
     CAST(U_SUFIJO_OC  AS varchar(32))                                     AS u_sufijo_oc
   FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]
-  WHERE F_ALTA_SIST >= CAST('2025-08-01' AS DATE)
+  WHERE F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
         AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
 ),
 rango AS (SELECT :desde AS d, :hasta AS h),

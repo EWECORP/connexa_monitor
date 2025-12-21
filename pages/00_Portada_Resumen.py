@@ -402,7 +402,7 @@ with col_left:
         # Buscar candidatos de columna "total_bultos"
         bultos_candidates = [
             c for c in df_plot.columns
-            if c in ("total_bultos", "bultos", "bultos_sgm", "bultos_connexa")
+            if c in ("total_bultos", "bultos", "bultos_sgm", "bultos_connexa", "bultos_total")
         ]
 
         if not oc_candidates:
@@ -516,6 +516,11 @@ st.markdown("## 3. Incorporación de proveedores")
 
 df_rk_prov, df_prop_prov = load_proveedores(desde, hasta)
 
+with st.expander("Debug: columnas ranking proveedores"):
+    st.write(list(df_rk_prov.columns))
+    st.dataframe(df_rk_prov.head(20), width="stretch")
+
+
 col_p_left, col_p_right = st.columns(2)
 
 # -------------------------
@@ -530,15 +535,16 @@ with col_p_left:
         df_plot = df_rk_prov.copy()
         if "label" not in df_plot.columns and "c_proveedor" in df_plot.columns:
             df_plot["label"] = df_plot["c_proveedor"].astype(str)
-
+        
         fig_prov = px.bar(
-            df_plot.sort_values("total_bultos"),
-            x="total_bultos",
+            df_plot.sort_values("bultos_total"),
+            x="bultos_total",
             y="label",
             orientation="h",
             title="Top proveedores por bultos en OC SGM desde CONNEXA",
-            text="total_bultos",
-        )
+            text="bultos_total",
+        )       
+        
         fig_prov.update_layout(xaxis_title="Bultos", yaxis_title="Proveedor")
         st.plotly_chart(fig_prov, width='stretch')
 

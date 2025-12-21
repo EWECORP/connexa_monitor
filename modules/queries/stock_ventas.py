@@ -116,6 +116,10 @@ QRY_PROVEEDORES = """
     SELECT c_proveedor, n_proveedor
     FROM src.m_10_proveedores;
     """
+    
+# ============================================================
+# Funciones públicas — STOCK_VENTAS
+# ============================================================
 
 def get_stock_sucursal(pg_engine):
     with pg_engine.connect() as conn:
@@ -131,14 +135,17 @@ def get_ventas_30d(pg_engine):
     with pg_engine.connect() as conn:
         result = conn.execute(QRY_VENTAS_30D)
         return result.fetchall()
-    
-def get_ventas_proveedor(pg_engine, desde, hasta, proveedor):
+
+def get_compradores(pg_engine):
     with pg_engine.connect() as conn:
-        result = conn.execute(
-            SQL_VENTAS_PROVEEDOR,
-            {"desde": desde, "hasta": hasta, "proveedor": proveedor}
-        )
-        return result.fetchall()   
-         
+        result = conn.execute(QRY_COMPPRADORES)
+        return result.fetchall()
+    
+def get_proveedores(pg_engine):
+    with pg_engine.connect() as conn:
+        result = conn.execute(QRY_PROVEEDORES)
+        return result.fetchall()
+    
+
 
 
