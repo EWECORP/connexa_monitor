@@ -185,8 +185,8 @@ def load_compradores(desde: date, hasta: date):
     eng_d = get_diarco_engine()
     eng_c = get_connexa_engine()
 
-    df_rk_oc = get_ranking_compradores_resumen(eng_d, desde, hasta, topn=5) if eng_d else pd.DataFrame()
-    df_rk_fp = get_ranking_comprador_forecast(eng_c, desde, hasta, topn=5) if eng_c else pd.DataFrame()
+    df_rk_oc = get_ranking_compradores_resumen(eng_d, desde, hasta, topn=20) if eng_d else pd.DataFrame()
+    df_rk_fp = get_ranking_comprador_forecast(eng_c, desde, hasta, topn=20) if eng_c else pd.DataFrame()
     df_prod  = get_productividad_comprador_mensual(eng_c, desde, hasta) if eng_c else pd.DataFrame()
 
     return df_rk_oc, df_rk_fp, df_prod
@@ -201,7 +201,7 @@ def load_proveedores(desde: date, hasta: date):
     """
     eng_s = get_sqlserver_engine()
 
-    df_rk_prov = get_ranking_proveedores_resumen(eng_s, desde, hasta, topn=5) if eng_s else pd.DataFrame()
+    df_rk_prov = get_ranking_proveedores_resumen(eng_s, desde, hasta, topn=10) if eng_s else pd.DataFrame()
     df_prop_prov = get_proveedores_ci_vs_sgm_mensual(eng_s, desde, hasta) if eng_s else pd.DataFrame()
 
     return df_rk_prov, df_prop_prov
@@ -387,8 +387,8 @@ with col_left:
 
         # Intentar identificar la columna de comprador
         if "comprador" not in df_plot.columns:
-            if "c_comprador" in df_plot.columns:
-                df_plot["comprador"] = df_plot["c_comprador"].astype(str)
+            if "n_comprador" in df_plot.columns:
+                df_plot["comprador"] = df_plot["n_comprador"].astype(str)
             else:
                 # fallback por si la query no trae un código claro
                 df_plot["comprador"] = df_plot.index.astype(str)
@@ -396,7 +396,7 @@ with col_left:
         # Buscar candidatos de columna "total_oc"
         oc_candidates = [
             c for c in df_plot.columns
-            if c in ("total_oc", "oc", "oc_sgm", "oc_connexa", "oc_total", "oc_distintas")
+            if c in ("total_oc", "oc", "oc_sgm", "oc_connexa", "oc_total", "oc_distintas", "total_pedidos")
         ]
 
         # Buscar candidatos de columna "total_bultos"
@@ -415,21 +415,21 @@ with col_left:
         else:
             oc_col = oc_candidates[0]
             # Renombrar a nombres estándar internos
-            rename_map = {oc_col: "total_oc"}
+            rename_map = {oc_col: "total_pedidos"}
             if bultos_candidates:
                 rename_map[bultos_candidates[0]] = "total_bultos"
             df_plot = df_plot.rename(columns=rename_map)
 
-            # Asegurar que 'total_oc' es numérico
-            df_plot["total_oc"] = pd.to_numeric(df_plot["total_oc"], errors="coerce").fillna(0)
+            # Asegurar que 'total_pedidos' es numérico
+            df_plot["total_pedidos"] = pd.to_numeric(df_plot["total_pedidos"], errors="coerce").fillna(0)
 
             fig_c = px.bar(
-                df_plot.sort_values("total_oc"),
-                x="total_oc",
+                df_plot.sort_values("total_pedidos"),
+                x="total_pedidos",
                 y="comprador",
                 orientation="h",
                 title="Top compradores por # OC CONNEXA",
-                text="total_oc",
+                text="total_pedidos",
             )
             fig_c.update_layout(xaxis_title="# OC CONNEXA", yaxis_title="")
             st.plotly_chart(fig_c, width='stretch')
@@ -531,10 +531,10 @@ with col_p_left:
     if df_rk_prov.empty:
         st.info("Sin datos de proveedores abastecidos vía CONNEXA en el rango seleccionado.")
     else:
-        # Espera columnas: c_proveedor, oc_distintas, total_bultos, label
+        # Espera columnas: c_proveedor, n_proveedor, oc_distintas, total_bultos, label
         df_plot = df_rk_prov.copy()
-        if "label" not in df_plot.columns and "c_proveedor" in df_plot.columns:
-            df_plot["label"] = df_plot["c_proveedor"].astype(str)
+        if "label" not in df_plot.columns and "n_proveedor" in df_plot.columns:
+            df_plot["label"] = df_plot["n_proveedor"].astype(str)
         
         fig_prov = px.bar(
             df_plot.sort_values("bultos_total"),

@@ -114,14 +114,17 @@ ORDER BY tot.mes;
 SQL_SGM_I4_PROV_DETALLE = text("""
 WITH t874 AS (
   SELECT
-    TRY_CONVERT(date, F_ALTA_SIST)                                        AS f_alta_date_ci,
-    CAST(U_PREFIJO_OC AS varchar(32))                                     AS u_prefijo_oc,
-    CAST(U_SUFIJO_OC  AS varchar(32))                                     AS u_sufijo_oc,
-    C_PROVEEDOR                                                           AS c_proveedor_ci,
+    TRY_CONVERT(date, T.F_ALTA_SIST)                                        AS f_alta_date_ci,
+    CAST(T.U_PREFIJO_OC AS varchar(32))                                     AS u_prefijo_oc,
+    CAST(T.U_SUFIJO_OC  AS varchar(32))                                     AS u_sufijo_oc,
+    T.C_PROVEEDOR                                                           AS c_proveedor_ci,
+	P.N_PROVEEDOR														  AS n_proveedor,
     COALESCE(Q_BULTOS_KILOS_DIARCO,0)                                     AS q_bultos_ci
-  FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
-  WHERE F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
-        AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST] T
+  LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T020_PROVEEDOR] P
+	ON T.C_PROVEEDOR = P.C_PROVEEDOR
+  WHERE T.F_ALTA_SIST >= CAST('2025-11-01' AS DATE)
+        AND ISNULL(T.U_PREFIJO_OC, 0) <> 0 AND ISNULL(T.U_SUFIJO_OC, 0) <> 0
 ),
 cabe AS (
   SELECT
@@ -145,6 +148,7 @@ cabe_r AS (
 SELECT
   c.f_alta_date_sgm AS f_alta_sgm,
   c.c_proveedor_sgm  AS c_proveedor,
+  t.n_proveedor AS n_proveedor,
   CONCAT(c.u_prefijo_oc, '-', c.u_sufijo_oc) AS oc_sgm,
   t.q_bultos_ci
 FROM cabe_r c
@@ -326,7 +330,7 @@ def get_ranking_proveedores_desde_ci(
         df_det["q_bultos_ci"] = pd.to_numeric(df_det["q_bultos_ci"], errors="coerce").fillna(0.0)
 
     rk = (
-        df_det.groupby("c_proveedor", dropna=False)
+        df_det.groupby(["c_proveedor", "n_proveedor"], dropna=False)
               .agg(
                   oc_distintas=("oc_sgm", "nunique"),
                   bultos_total=("q_bultos_ci", "sum"),
@@ -335,7 +339,7 @@ def get_ranking_proveedores_desde_ci(
     )
 
     rk = rk.sort_values("bultos_total", ascending=False).head(topn)
-    rk["label"] = rk["c_proveedor"].astype(str)
+    rk["label"] = rk["n_proveedor"].astype(str)
 
     return rk
 
