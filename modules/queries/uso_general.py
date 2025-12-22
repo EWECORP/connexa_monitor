@@ -179,7 +179,7 @@ CREATE OR REPLACE VIEW mon.v_forecast_propuesta_base
 # SQL básicos para Indicadores de uso general
 # ============================================================
 
-# Serie mensual de OC generadas (vista mon.v_oc_generadas_mensual)
+# Serie mensual de OC generadas (DIARCO_DATA: Postgres vista mon.v_oc_generadas_mensual)
 SQL_OC_GENERADAS_RANGO = text("""
 SELECT *
 FROM mon.v_oc_generadas_mensual
@@ -187,7 +187,7 @@ WHERE mes >= :desde AND mes <= :hasta
 ORDER BY mes, c_comprador, c_proveedor;
 """)
 
-# Forecast → Propuesta: serie mensual
+# Forecast → Propuesta: serie mensual   (CONNEXA_MS PROD connexa_platform_ms)
 SQL_FP_CONVERSION_MENSUAL = text("""
 WITH b AS (
   SELECT *
@@ -220,7 +220,7 @@ FULL OUTER JOIN pp_m USING (mes)
 ORDER BY mes;
 """)
 
-# Embudo CONNEXA → SGM (PostgreSQL + SQL Server)
+# Embudo CONNEXA → SGM (DIARCO_DATA: PostgreSQL + SQL Server) PEDIDOS DISTINTOS Y BULTOS
 SQL_PG_KIKKER_MENSUAL = text("""
 SELECT
   date_trunc('month', (f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'))::date AS mes,
@@ -259,7 +259,7 @@ GROUP BY DATEFROMPARTS(YEAR(f_alta_date), MONTH(f_alta_date), 1)
 ORDER BY mes;
 """)
 
-# Proporción CI vs Total SGM (Indicador 3)
+# Proporción CI vs Total SGM (Indicador 3) DMZ SQL Server -Linked Server PROD DIARCOP001
 SQL_SGM_I3_MENSUAL = text("""
 WITH t874 AS (
   SELECT
