@@ -428,11 +428,11 @@ df["comprador_label"] = df.apply(
 
 # Actividad “accionable” para adopción:
 #   - Total actividad = Connexa + SGM directas (lo que compite con Connexa)
-df["oc_total_actividad"] = df["oc_sgm_desde_connexa"] + df["oc_sgm_directas"]
+df["oc_total_actividad"] = df["oc_connexa"] + df["oc_sgm_directas"]
 df["prov_total_actividad"] = df["prov_connexa"] + df["prov_sgm_directos"]
 
 df["pct_connexa"] = df.apply(
-    lambda r: (r["oc_sgm_desde_connexa"] / r["oc_total_actividad"]) if r["oc_total_actividad"] else 0.0,
+    lambda r: (r["oc_connexa"] / r["oc_total_actividad"]) if r["oc_total_actividad"] else 0.0,
     axis=1,
 )
 
@@ -453,7 +453,7 @@ if df.empty:
     st.stop()
 
 compradores_activos = int(df["c_comprador"].nunique()) if "c_comprador" in df.columns else int(df["comprador_label"].nunique())
-tot_oc_connexa = int(_safe_sum(df, "oc_sgm_desde_connexa"))
+tot_oc_connexa = int(_safe_sum(df, "oc_connexa"))
 tot_oc_sgm_dir = int(_safe_sum(df, "oc_sgm_directas"))
 tot_oc_actividad = int(_safe_sum(df, "oc_total_actividad"))
 tot_bultos_connexa = int(_safe_sum(df, "bultos_connexa"))
@@ -507,7 +507,7 @@ with tab1:
     fig_bar = px.bar(
         df_bar,
         x="comprador_label",
-        y=["oc_sgm_desde_connexa", "oc_sgm_directas"],
+        y=["oc_connexa", "oc_sgm_directas"],
         barmode="stack",
         title="OC por comprador — Connexa vs SGM directas",
     )
@@ -558,7 +558,7 @@ with tab2:
     st.dataframe(
         rk1[[
             "comprador_label",
-            "oc_sgm_desde_connexa",
+            "oc_connexa",
             "oc_sgm_directas",
             "oc_total_actividad",
             "pct_connexa",
@@ -574,7 +574,7 @@ with tab2:
         rk2[[
             "comprador_label",
             "oc_sgm_directas",
-            "oc_sgm_desde_connexa",
+            "oc_connexa",
             "pct_connexa",
             "prov_sgm_directos",
             "prov_connexa",
@@ -591,7 +591,7 @@ with tab2:
             "prov_sgm_directos",
             "prov_connexa",
             "oc_sgm_directas",
-            "oc_sgm_desde_connexa",
+            "oc_connexa",
             "pct_connexa",
         ]],
         use_container_width=True,
