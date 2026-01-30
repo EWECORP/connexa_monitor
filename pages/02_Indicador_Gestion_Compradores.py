@@ -19,6 +19,8 @@ from sqlalchemy import text
 from modules.ui import render_header, make_date_filters
 from modules.db import get_pg_engine, get_sqlserver_engine
 
+import re
+
 
 # -------------------------------------------------------
 # Configuración general
@@ -33,6 +35,17 @@ render_header("Indicador 2 — Gestión de Compradores (Connexa vs SGM)")
 
 desde, hasta = make_date_filters()
 ttl = int(os.getenv("CACHE_TTL_SECONDS", "300"))
+
+
+# ==========================
+# CONFIG COLUMNAS SUCURSAL
+# ==========================
+# Permite adaptar rápidamente si cambia el nombre real de la columna.
+# Ejemplos típicos:
+#   - PG Connexa: c_sucursal / sucursal / cod_sucursal / codigo_sucursal
+#   - SQL Server SGM: C_SUCURSAL (si está en cabecera) o se debe tomar desde otra tabla.
+PG_CI_SUCURSAL_COL = os.getenv("PG_CI_SUCURSAL_COL", "c_sucu_empr")
+SGM_SUCURSAL_COL = os.getenv("SGM_SUCURSAL_COL", "C_SUCU_DESTINO")
 
 
 # -------------------------------------------------------
@@ -81,6 +94,16 @@ def _label_comprador_ui(c_comprador, n_comprador) -> str:
 
     return "- sin comprador -"
 
+def _safe_ident(name: str) -> str:
+    """
+    Permite solo identificadores tipo [a-zA-Z0-9_].
+    Si no cumple, se cae a un valor seguro por defecto.
+    """
+    if not name:
+        return ""
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        return name
+    return ""
 
 # -------------------------------------------------------
 # SQL — DIMENSIÓN COMPRADORES (PostgreSQL diarco_data)
@@ -299,6 +322,113 @@ GROUP BY mes, c_comprador, C_PROVEEDOR
 ORDER BY mes, oc_sgm_directas DESC;
 """)
 
+# -------------------------------------------------------
+# SQL — SEMANAL (Connexa / CI) — Global
+# -------------------------------------------------------
+def _sql_pg_ci_weekly_global(pg_sucursal_col: str) -> text: # type: ignore
+    col = _safe_ident(pg_sucursal_col)
+    # Si no hay columna válida, se fuerza NULL para que el count distinct no rompa
+    suc_expr = col if col else "NULL"
+
+    return text(f"""
+    SELECT
+      date_trunc('week', f_alta_sist)::date                       AS semana,
+      COUNT(DISTINCT c_compra_connexa)                             AS oc_ci,
+      COUNT(DISTINCT c_proveedor)                                 AS prov_ci,
+      COUNT(DISTINCT {suc_expr})                                  AS suc_ci
+    FROM public.t080_oc_precarga_connexa
+    WHERE f_alta_sist >= :desde
+      AND f_alta_sist < (:hasta + INTERVAL '1 day')
+    GROUP BY 1
+    ORDER BY 1;
+    """)
+
+# -------------------------------------------------------
+# SQL — SEMANAL (Connexa / CI) — Por comprador
+# -------------------------------------------------------
+def _sql_pg_ci_weekly_by_buyer(pg_sucursal_col: str) -> text: # type: ignore
+    col = _safe_ident(pg_sucursal_col)
+    suc_expr = col if col else "NULL"
+
+    return text(f"""
+    SELECT
+      date_trunc('week', f_alta_sist)::date                       AS semana,
+      c_comprador                                                 AS c_comprador,
+      COUNT(DISTINCT c_compra_connexa)                             AS oc_ci,
+      COUNT(DISTINCT c_proveedor)                                 AS prov_ci,
+      COUNT(DISTINCT {suc_expr})                                  AS suc_ci
+    FROM public.t080_oc_precarga_connexa
+    WHERE f_alta_sist >= :desde
+      AND f_alta_sist < (:hasta + INTERVAL '1 day')
+    GROUP BY 1, 2
+    ORDER BY 1, 2;
+    """)
+
+# -------------------------------------------------------
+# SQL — SEMANAL (SGM) — Global
+# -------------------------------------------------------
+def _sql_sgm_weekly_global(sgm_sucursal_col: str) -> text: # type: ignore
+    col = _safe_ident(sgm_sucursal_col)
+    suc_expr = col if col else "NULL"
+
+    return text(f"""
+    WITH cabe AS (
+      SELECT
+        TRY_CONVERT(date, F_ALTA_SIST) AS f_alta_date,
+        C_COMPRADOR,
+        C_PROVEEDOR,
+        {suc_expr} AS C_SUCURSAL_DYN,
+        CAST(U_PREFIJO_OC AS varchar(32)) AS u_prefijo_oc,
+        CAST(U_SUFIJO_OC  AS varchar(32)) AS u_sufijo_oc,
+        CONCAT(CAST(U_PREFIJO_OC AS varchar(32)), '-', CAST(U_SUFIJO_OC AS varchar(32))) AS oc_sgm
+      FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]
+      WHERE TRY_CONVERT(date, F_ALTA_SIST) >= :desde
+        AND TRY_CONVERT(date, F_ALTA_SIST) <  DATEADD(day, 1, :hasta)
+        AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
+    )
+    SELECT
+      DATEADD(week, DATEDIFF(week, 0, f_alta_date), 0)           AS semana,
+      COUNT(DISTINCT oc_sgm)                                      AS oc_sgm_total,
+      COUNT(DISTINCT C_PROVEEDOR)                                 AS prov_sgm_total,
+      COUNT(DISTINCT C_SUCURSAL_DYN)                              AS suc_sgm_total
+    FROM cabe
+    GROUP BY DATEADD(week, DATEDIFF(week, 0, f_alta_date), 0)
+    ORDER BY semana;
+    """)
+
+# -------------------------------------------------------
+# SQL — SEMANAL (SGM) — Por comprador
+# -------------------------------------------------------
+def _sql_sgm_weekly_by_buyer(sgm_sucursal_col: str) -> text: # type: ignore
+    col = _safe_ident(sgm_sucursal_col)
+    suc_expr = col if col else "NULL"
+
+    return text(f"""
+    WITH cabe AS (
+      SELECT
+        TRY_CONVERT(date, F_ALTA_SIST) AS f_alta_date,
+        C_COMPRADOR,
+        C_PROVEEDOR,
+        {suc_expr} AS C_SUCURSAL_DYN,
+        CAST(U_PREFIJO_OC AS varchar(32)) AS u_prefijo_oc,
+        CAST(U_SUFIJO_OC  AS varchar(32)) AS u_sufijo_oc,
+        CONCAT(CAST(U_PREFIJO_OC AS varchar(32)), '-', CAST(U_SUFIJO_OC AS varchar(32))) AS oc_sgm
+      FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]
+      WHERE TRY_CONVERT(date, F_ALTA_SIST) >= :desde
+        AND TRY_CONVERT(date, F_ALTA_SIST) <  DATEADD(day, 1, :hasta)
+        AND ISNULL(U_PREFIJO_OC, 0) <> 0 AND ISNULL(U_SUFIJO_OC, 0) <> 0
+    )
+    SELECT
+      DATEADD(week, DATEDIFF(week, 0, f_alta_date), 0)           AS semana,
+      C_COMPRADOR                                                AS c_comprador,
+      COUNT(DISTINCT oc_sgm)                                      AS oc_sgm_total,
+      COUNT(DISTINCT C_PROVEEDOR)                                 AS prov_sgm_total,
+      COUNT(DISTINCT C_SUCURSAL_DYN)                              AS suc_sgm_total
+    FROM cabe
+    GROUP BY DATEADD(week, DATEDIFF(week, 0, f_alta_date), 0), C_COMPRADOR
+    ORDER BY semana, c_comprador;
+    """)
+
 
 # -------------------------------------------------------
 # Loaders (cacheados)
@@ -395,6 +525,50 @@ def load_proveedores_mensual_por_comprador(desde: date, hasta: date, c_comprador
 
     return df_cx, df_sgm
 
+@st.cache_data(ttl=ttl)
+def load_ci_weekly_global(desde: date, hasta: date, pg_sucursal_col: str) -> pd.DataFrame:
+    q = _sql_pg_ci_weekly_global(pg_sucursal_col)
+    eng = get_pg_engine()
+    with eng.connect() as con:
+        df = pd.read_sql(q, con, params={"desde": desde, "hasta": hasta})
+    df["semana"] = pd.to_datetime(df["semana"], errors="coerce")
+    return df
+
+
+@st.cache_data(ttl=ttl)
+def load_ci_weekly_by_buyer(desde: date, hasta: date, pg_sucursal_col: str) -> pd.DataFrame:
+    q = _sql_pg_ci_weekly_by_buyer(pg_sucursal_col)
+    eng = get_pg_engine()
+    with eng.connect() as con:
+        df = pd.read_sql(q, con, params={"desde": desde, "hasta": hasta})
+    df = _to_int64(df, "c_comprador")
+    df["semana"] = pd.to_datetime(df["semana"], errors="coerce")
+    return df
+
+
+@st.cache_data(ttl=ttl)
+def load_sgm_weekly_global(desde: date, hasta: date, sgm_sucursal_col: str) -> pd.DataFrame:
+    eng = get_sqlserver_engine()
+    if eng is None:
+        return pd.DataFrame(columns=["semana", "oc_sgm_total", "prov_sgm_total", "suc_sgm_total"])
+    q = _sql_sgm_weekly_global(sgm_sucursal_col)
+    with eng.connect() as con:
+        df = pd.read_sql(q, con, params={"desde": desde, "hasta": hasta})
+    df["semana"] = pd.to_datetime(df["semana"], errors="coerce")
+    return df
+
+
+@st.cache_data(ttl=ttl)
+def load_sgm_weekly_by_buyer(desde: date, hasta: date, sgm_sucursal_col: str) -> pd.DataFrame:
+    eng = get_sqlserver_engine()
+    if eng is None:
+        return pd.DataFrame(columns=["semana", "c_comprador", "oc_sgm_total", "prov_sgm_total", "suc_sgm_total"])
+    q = _sql_sgm_weekly_by_buyer(sgm_sucursal_col)
+    with eng.connect() as con:
+        df = pd.read_sql(q, con, params={"desde": desde, "hasta": hasta})
+    df = _to_int64(df, "c_comprador")
+    df["semana"] = pd.to_datetime(df["semana"], errors="coerce")
+    return df
 
 # -------------------------------------------------------
 # Construcción DF Master (por comprador)
@@ -443,6 +617,62 @@ df["pct_connexa_en_sgm"] = df.apply(
 )
 
 
+# ---------  Planilla semanal global --------------------------------------
+df_sgm_w = load_sgm_weekly_global(desde, hasta, SGM_SUCURSAL_COL)
+df_ci_w  = load_ci_weekly_global(desde, hasta, PG_CI_SUCURSAL_COL)
+
+df_week_global = pd.merge(df_sgm_w, df_ci_w, on="semana", how="outer").sort_values("semana")
+df_week_global = df_week_global.fillna(0)
+
+# Renombrar a lo pedido
+df_week_global = df_week_global.rename(columns={
+    "oc_sgm_total": "total_oc_sgm",
+    "oc_ci": "total_oc_ci",
+    "prov_sgm_total": "total_prov_sgm",
+    "prov_ci": "total_prov_ci",
+    "suc_sgm_total": "total_suc_sgm",
+    "suc_ci": "total_suc_ci",
+})
+
+# KPI adopción semanal (sobre total SGM o sobre (SGM directas + CI); aquí sobre total SGM)
+df_week_global["pct_ci_sobre_sgm"] = df_week_global.apply(
+    lambda r: (r["total_oc_ci"] / r["total_oc_sgm"]) if r["total_oc_sgm"] else 0.0,
+    axis=1
+)
+
+# --- PLANILLA SEMANAL POR COMPRADOR
+df_sgm_wb = load_sgm_weekly_by_buyer(desde, hasta, SGM_SUCURSAL_COL)
+df_ci_wb  = load_ci_weekly_by_buyer(desde, hasta, PG_CI_SUCURSAL_COL)
+
+df_week_buyer = pd.merge(df_sgm_wb, df_ci_wb, on=["semana","c_comprador"], how="outer").sort_values(["semana","c_comprador"])
+df_week_buyer = df_week_buyer.fillna(0)
+
+df_week_buyer = df_week_buyer.rename(columns={
+    "oc_sgm_total": "total_oc_sgm",
+    "oc_ci": "total_oc_ci",
+    "prov_sgm_total": "total_prov_sgm",
+    "prov_ci": "total_prov_ci",
+    "suc_sgm_total": "total_suc_sgm",
+    "suc_ci": "total_suc_ci",
+})
+
+df_week_buyer["pct_ci_sobre_sgm"] = df_week_buyer.apply(
+    lambda r: (r["total_oc_ci"] / r["total_oc_sgm"]) if r["total_oc_sgm"] else 0.0,
+    axis=1
+)
+
+# Enriquecer con nombres (ya tienen df_dim en el script final)
+if df_dim is not None and not df_dim.empty:
+    df_week_buyer = df_week_buyer.merge(df_dim, on="c_comprador", how="left")
+else:
+    df_week_buyer["n_comprador"] = None
+
+df_week_buyer["comprador_label"] = df_week_buyer.apply(
+    lambda r: _label_comprador_ui(r.get("c_comprador"), r.get("n_comprador")),
+    axis=1
+)
+
+
 # -------------------------------------------------------
 # Resumen ejecutivo
 # -------------------------------------------------------
@@ -475,9 +705,14 @@ st.divider()
 # -------------------------------------------------------
 # Tabs
 # -------------------------------------------------------
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📊 Visión gerencial", "🏅 Ranking", "📋 Detalle", "📈 Evolución mensual"]
-)
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📊 Visión gerencial",
+    "🏅 Ranking",
+    "📋 Detalle",
+    "📈 Evolución mensual",
+    "🗓️ Control semanal",
+    "🧑‍💼 Control semanal por comprador",
+])
 
 # -----------------------------
 # TAB 1 — Visión gerencial
@@ -901,3 +1136,104 @@ with tab4:
                     file_name=f"gestion_compradores_proveedores_mensual_comprador_{c_comprador}.csv",
                     mime="text/csv",
                 )
+
+
+# -----------------------------
+# TAB 5 — Planilla semanal global
+# -----------------------------
+with tab5:
+    st.subheader("Planilla de control — Evolución semanal (Global)")
+
+    if df_week_global.empty:
+        st.info("No hay datos semanales para el rango seleccionado.")
+    else:
+        st.dataframe(
+            df_week_global.sort_values("semana"),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Gráfico sugerido: OC SGM vs OC CI por semana
+        fig = px.bar(
+            df_week_global,
+            x="semana",
+            y=["total_oc_sgm", "total_oc_ci"],
+            barmode="group",
+            title="Evolución semanal — OC SGM vs OC desde Comprador Inteligente",
+        )
+        fig.update_layout(xaxis_title="Semana", yaxis_title="Cantidad de OC")
+        st.plotly_chart(fig, use_container_width=True)
+
+        fig2 = px.line(
+            df_week_global,
+            x="semana",
+            y="pct_ci_sobre_sgm",
+            markers=True,
+            title="% CI sobre SGM (semanal)",
+        )
+        fig2.update_layout(xaxis_title="Semana", yaxis_title="% CI / SGM")
+        st.plotly_chart(fig2, use_container_width=True)
+
+        st.download_button(
+            "Descargar CSV (control semanal global)",
+            data=df_week_global.to_csv(index=False).encode("utf-8"),
+            file_name="control_semanal_global.csv",
+            mime="text/csv",
+        )
+
+        st.caption(
+            "Nota técnica: el conteo de sucursales depende de que exista una columna de sucursal en las fuentes. "
+            "Puede configurarse con PG_CI_SUCURSAL_COL y SGM_SUCURSAL_COL."
+        )
+
+# -----------------------------
+# TAB 6 — Planilla semanal global
+# -----------------------------
+with tab6:
+    st.subheader("Planilla de control — Evolución semanal por comprador")
+
+    if df_week_buyer.empty:
+        st.info("No hay datos semanales por comprador para el rango seleccionado.")
+    else:
+        compradores = sorted(df_week_buyer["comprador_label"].dropna().unique().tolist())
+
+        colA, colB = st.columns([2,1])
+        with colA:
+            sel = st.multiselect(
+                "Seleccionar compradores",
+                options=compradores,
+                default=compradores[:5] if compradores else [],
+            )
+        with colB:
+            min_oc = st.number_input("Mínimo OC SGM por semana", min_value=0, value=0, step=5)
+
+        base = df_week_buyer.copy()
+        if sel:
+            base = base[base["comprador_label"].isin(sel)]
+        if min_oc > 0:
+            base = base[base["total_oc_sgm"] >= min_oc]
+
+        st.dataframe(
+            base.sort_values(["semana","comprador_label"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Gráfico: % CI semanal por comprador
+        fig = px.line(
+            base.sort_values("semana"),
+            x="semana",
+            y="pct_ci_sobre_sgm",
+            color="comprador_label",
+            markers=True,
+            title="% CI sobre SGM — Evolución semanal por comprador",
+        )
+        fig.update_layout(xaxis_title="Semana", yaxis_title="% CI / SGM")
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.download_button(
+            "Descargar CSV (control semanal por comprador)",
+            data=base.to_csv(index=False).encode("utf-8"),
+            file_name="control_semanal_por_comprador.csv",
+            mime="text/csv",
+        )
