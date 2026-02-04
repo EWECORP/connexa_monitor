@@ -10,7 +10,7 @@ su consolidación en pre‑carga (diarco_data) y su tránsito/confirmación en S
 Entradas
 --------
 1) Postgres (connexa_platform):
-   - supply_planning.view_spl_supply_purchase_proposal_supplier_site
+   - mon.view_spl_supply_purchase_proposal_supplier_site
 
 2) Postgres (diarco_data):
    - public.t080_oc_precarga_connexa
@@ -153,7 +153,7 @@ SQL_DISTINCT_SUPPLIERS = """
 SELECT ext_code_supplier
 FROM (
     SELECT DISTINCT ext_code_supplier
-    FROM supply_planning.view_spl_supply_purchase_proposal_supplier_site
+    FROM mon.view_spl_supply_purchase_proposal_supplier_site
 ) t
 ORDER BY ext_code_supplier::int;
 """
@@ -223,18 +223,15 @@ WHERE [C_COMPRA_KIKKER] = ?
 # Capa de datos
 # =========================
     
-ttl = int(os.getenv("CACHE_TTL_SECONDS", "300"))  # 5 min por defecto
-
-@st.cache_data(ttl=ttl, show_spinner=False)
+@st.cache_data(show_spinner=False)
 def listar_suppliers(_engine: Engine) -> pd.DataFrame:
     with _engine.connect() as conn:
         return pd.read_sql(SQL_DISTINCT_SUPPLIERS, conn)
-
-@st.cache_data(ttl=ttl, show_spinner=False)
+    
+@st.cache_data(show_spinner=False)
 def listar_proposals(_engine: Engine, supplier: str) -> pd.DataFrame:
     with _engine.connect() as conn:
         return pd.read_sql(text(SQL_DISTINCT_PROPOSALS), conn, params={"supplier": supplier})
-
 
 @st.cache_data(show_spinner=False)
 def cargar_resumen_view(_engine: Engine, supplier: Optional[str], proposal: Optional[str]) -> pd.DataFrame:
@@ -354,12 +351,6 @@ def main():
         st.success(f"Connexa: {'OK' if connexa_ok else 'NO'}")
         st.success(f"Diarco Data: {'OK' if diarco_ok else 'NO'}")
         st.info(f"SQL Server SGM (opcional): {'OK' if ssql_ok else 'NO'}")
-
-        if st.button("🔄 Refrescar datos (limpiar caché)"):
-            st.cache_data.clear()
-            st.success("Caché limpiada. Recalculando…")
-            st.rerun()
-
 
     if not (connexa_ok and diarco_ok):
         st.stop()
