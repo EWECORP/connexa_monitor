@@ -6,16 +6,9 @@
 #   - Rankear adopción (%Connexa) y detectar focos de mejora.
 #   - Incorporar evolución mensual y drill-down por comprador → proveedores (Connexa y SGM directo).
 #   - Mostrar nombres de compradores desde diarco_data: src.m_9_compradores.
-#
-# Cambios (Feb-2026):
-#   - Se incorpora matriz de adopción semanal por comprador basada en:
-#       [data-sync].[dbo].[V_USO_SEMANAL_COMPRADOR]
-#     donde SEMANA viene como "YYYY-WW" (año ISO + semana ISO).
-#   - La matriz se muestra al FINAL del TAB 6.
 
 import os
-import re
-from datetime import date, datetime
+from datetime import date
 from typing import List, Tuple
 
 import pandas as pd
@@ -25,6 +18,8 @@ from sqlalchemy import text
 
 from modules.ui import render_header, make_date_filters
 from modules.db import get_pg_engine, get_sqlserver_engine
+
+import re
 
 
 # -------------------------------------------------------
@@ -99,7 +94,6 @@ def _label_comprador_ui(c_comprador, n_comprador) -> str:
 
     return "- sin comprador -"
 
-
 def _safe_ident(name: str) -> str:
     """
     Permite solo identificadores tipo [a-zA-Z0-9_].
@@ -111,6 +105,7 @@ def _safe_ident(name: str) -> str:
         return name
     return ""
 
+from datetime import datetime
 
 def _iso_week_monday(yyyy_ww: str):
     """
@@ -121,14 +116,17 @@ def _iso_week_monday(yyyy_ww: str):
         return pd.NaT
 
     s = yyyy_ww.strip()
+    # Aceptar 'YYYY-WW' y también 'YYYY-W' por si viene sin zero-pad
     try:
         year_str, week_str = s.split("-")
         year = int(year_str)
         week = int(week_str)
-        dt = datetime.strptime(f"{year}-W{week:02d}-1", "%G-W%V-%u")  # lunes ISO = 1
+        # ISO: lunes = día 1
+        dt = datetime.strptime(f"{year}-W{week:02d}-1", "%G-W%V-%u")
         return pd.to_datetime(dt.date())
     except Exception:
         return pd.NaT
+
 
 
 # -------------------------------------------------------
@@ -348,12 +346,12 @@ GROUP BY mes, c_comprador, C_PROVEEDOR
 ORDER BY mes, oc_sgm_directas DESC;
 """)
 
-
 # -------------------------------------------------------
 # SQL — SEMANAL (Connexa / CI) — Global
 # -------------------------------------------------------
-def _sql_pg_ci_weekly_global(pg_sucursal_col: str) -> text:  # type: ignore
+def _sql_pg_ci_weekly_global(pg_sucursal_col: str) -> text: # type: ignore
     col = _safe_ident(pg_sucursal_col)
+    # Si no hay columna válida, se fuerza NULL para que el count distinct no rompa
     suc_expr = col if col else "NULL"
 
     return text(f"""
@@ -369,11 +367,28 @@ def _sql_pg_ci_weekly_global(pg_sucursal_col: str) -> text:  # type: ignore
     ORDER BY 1;
     """)
 
+# -------------------------------------------------------
+# SQL — USO SEMANAL POR COMPRADOR (SQL Server data-sync)
+#   Fuente: [data-sync].[dbo].[V_USO_SEMANAL_COMPRADOR]
+#   Objetivo: obtener % adopción Connexa por semana y comprador
+# -------------------------------------------------------
+SQL_SGM_USO_SEMANAL_COMPRADOR = text("""
+SELECT
+    CAST(C_COMPRADOR AS int)         AS c_comprador,
+    CAST(SEMANA AS varchar(10))      AS semana_yyyyww,   -- Ej: '2026-05'
+    CAST(Total_OC_CNX AS float)      AS total_oc_cnx,
+    CAST(Total_OC_SGM AS float)      AS total_oc_sgm,
+    CAST(Total_Prv_CNX AS float)     AS total_prv_cnx,
+    CAST(Total_Prv_SGM AS float)     AS total_prv_sgm,
+    CAST(Total_BULTOS_CNX AS float)  AS total_bultos_cnx,
+    CAST(Total_BULTOS_SGM AS float)  AS total_bultos_sgm
+FROM [data-sync].[dbo].[V_USO_SEMANAL_COMPRADOR];
+""")
 
 # -------------------------------------------------------
 # SQL — SEMANAL (Connexa / CI) — Por comprador
 # -------------------------------------------------------
-def _sql_pg_ci_weekly_by_buyer(pg_sucursal_col: str) -> text:  # type: ignore
+def _sql_pg_ci_weekly_by_buyer(pg_sucursal_col: str) -> text: # type: ignore
     col = _safe_ident(pg_sucursal_col)
     suc_expr = col if col else "NULL"
 
@@ -391,11 +406,10 @@ def _sql_pg_ci_weekly_by_buyer(pg_sucursal_col: str) -> text:  # type: ignore
     ORDER BY 1, 2;
     """)
 
-
 # -------------------------------------------------------
 # SQL — SEMANAL (SGM) — Global
 # -------------------------------------------------------
-def _sql_sgm_weekly_global(sgm_sucursal_col: str) -> text:  # type: ignore
+def _sql_sgm_weekly_global(sgm_sucursal_col: str) -> text: # type: ignore
     col = _safe_ident(sgm_sucursal_col)
     suc_expr = col if col else "NULL"
 
@@ -424,11 +438,10 @@ def _sql_sgm_weekly_global(sgm_sucursal_col: str) -> text:  # type: ignore
     ORDER BY semana;
     """)
 
-
 # -------------------------------------------------------
 # SQL — SEMANAL (SGM) — Por comprador
 # -------------------------------------------------------
-def _sql_sgm_weekly_by_buyer(sgm_sucursal_col: str) -> text:  # type: ignore
+def _sql_sgm_weekly_by_buyer(sgm_sucursal_col: str) -> text: # type: ignore
     col = _safe_ident(sgm_sucursal_col)
     suc_expr = col if col else "NULL"
 
@@ -457,25 +470,6 @@ def _sql_sgm_weekly_by_buyer(sgm_sucursal_col: str) -> text:  # type: ignore
     GROUP BY DATEADD(week, DATEDIFF(week, 0, f_alta_date), 0), C_COMPRADOR
     ORDER BY semana, c_comprador;
     """)
-
-
-# -------------------------------------------------------
-# SQL — USO SEMANAL POR COMPRADOR (SQL Server data-sync)
-#   Fuente: [data-sync].[dbo].[V_USO_SEMANAL_COMPRADOR]
-#   SEMANA = 'YYYY-WW' (año ISO + semana ISO)
-# -------------------------------------------------------
-SQL_SGM_USO_SEMANAL_COMPRADOR = text("""
-SELECT
-    CAST(C_COMPRADOR AS int)         AS c_comprador,
-    CAST(SEMANA AS varchar(10))      AS semana_yyyyww,   -- Ej: '2026-05'
-    CAST(Total_OC_CNX AS float)      AS total_oc_cnx,
-    CAST(Total_OC_SGM AS float)      AS total_oc_sgm,
-    CAST(Total_Prv_CNX AS float)     AS total_prv_cnx,
-    CAST(Total_Prv_SGM AS float)     AS total_prv_sgm,
-    CAST(Total_BULTOS_CNX AS float)  AS total_bultos_cnx,
-    CAST(Total_BULTOS_SGM AS float)  AS total_bultos_sgm
-FROM [data-sync].[dbo].[V_USO_SEMANAL_COMPRADOR];
-""")
 
 
 # -------------------------------------------------------
@@ -552,8 +546,8 @@ def load_proveedores_mensual_por_comprador(desde: date, hasta: date, c_comprador
             params={"desde": desde, "hasta": hasta, "c_comprador": int(c_comprador)},
         )
     df_cx = _ensure_numeric_cols(df_cx, ["oc_connexa"])
-    df_cx["c_proveedor"] = pd.to_numeric(df_cx.get("c_proveedor"), errors="coerce").astype("Int64")  # type: ignore
-    df_cx["mes_dt"] = pd.to_datetime(df_cx.get("mes"), errors="coerce")  # type: ignore
+    df_cx["c_proveedor"] = pd.to_numeric(df_cx.get("c_proveedor"), errors="coerce").astype("Int64") # type: ignore
+    df_cx["mes_dt"] = pd.to_datetime(df_cx.get("mes"), errors="coerce") # type: ignore
 
     # SGM directo (SQL)
     eng_sql = get_sqlserver_engine()
@@ -568,11 +562,10 @@ def load_proveedores_mensual_por_comprador(desde: date, hasta: date, c_comprador
             params={"desde": desde, "hasta": hasta, "c_comprador": int(c_comprador)},
         )
     df_sgm = _ensure_numeric_cols(df_sgm, ["oc_sgm_directas"])
-    df_sgm["c_proveedor"] = pd.to_numeric(df_sgm.get("c_proveedor"), errors="coerce").astype("Int64")  # type: ignore
-    df_sgm["mes_dt"] = pd.to_datetime(df_sgm.get("mes"), errors="coerce")  # type: ignore
+    df_sgm["c_proveedor"] = pd.to_numeric(df_sgm.get("c_proveedor"), errors="coerce").astype("Int64") # type: ignore
+    df_sgm["mes_dt"] = pd.to_datetime(df_sgm.get("mes"), errors="coerce") # type: ignore
 
     return df_cx, df_sgm
-
 
 @st.cache_data(ttl=ttl)
 def load_ci_weekly_global(desde: date, hasta: date, pg_sucursal_col: str) -> pd.DataFrame:
@@ -619,15 +612,8 @@ def load_sgm_weekly_by_buyer(desde: date, hasta: date, sgm_sucursal_col: str) ->
     df["semana"] = pd.to_datetime(df["semana"], errors="coerce")
     return df
 
-
 @st.cache_data(ttl=ttl)
 def load_uso_semanal_comprador(desde: date, hasta: date) -> pd.DataFrame:
-    """
-    Trae la vista semanal consolidada desde SQL Server (data-sync):
-      [data-sync].[dbo].[V_USO_SEMANAL_COMPRADOR]
-    donde SEMANA tiene formato 'YYYY-WW' (ISO year-week).
-    Filtra por rango usando el lunes ISO (semana_inicio).
-    """
     eng = get_sqlserver_engine()
     if eng is None:
         return pd.DataFrame(columns=[
@@ -650,21 +636,21 @@ def load_uso_semanal_comprador(desde: date, hasta: date) -> pd.DataFrame:
         "total_bultos_cnx", "total_bultos_sgm"
     ])
 
+    # Calcular lunes ISO de la semana y filtrar por rango de fechas seleccionado
     dfu["semana_inicio"] = dfu["semana_yyyyww"].apply(_iso_week_monday)
 
     d0 = pd.to_datetime(desde)
     d1 = pd.to_datetime(hasta)
-
     dfu = dfu[dfu["semana_inicio"].notna()].copy()
     dfu = dfu[(dfu["semana_inicio"] >= d0) & (dfu["semana_inicio"] <= d1)].copy()
 
+    # KPI: %Connexa semanal (sobre OC SGM)
     dfu["pct_connexa_sem"] = dfu.apply(
         lambda r: (r["total_oc_cnx"] / r["total_oc_sgm"]) if r["total_oc_sgm"] else 0.0,
         axis=1
     )
 
     return dfu
-
 
 # -------------------------------------------------------
 # Construcción DF Master (por comprador)
@@ -715,11 +701,12 @@ df["pct_connexa_en_sgm"] = df.apply(
 
 # ---------  Planilla semanal global --------------------------------------
 df_sgm_w = load_sgm_weekly_global(desde, hasta, SGM_SUCURSAL_COL)
-df_ci_w = load_ci_weekly_global(desde, hasta, PG_CI_SUCURSAL_COL)
+df_ci_w  = load_ci_weekly_global(desde, hasta, PG_CI_SUCURSAL_COL)
 
 df_week_global = pd.merge(df_sgm_w, df_ci_w, on="semana", how="outer").sort_values("semana")
 df_week_global = df_week_global.fillna(0)
 
+# Renombrar a lo pedido
 df_week_global = df_week_global.rename(columns={
     "oc_sgm_total": "total_oc_sgm",
     "oc_ci": "total_oc_ci",
@@ -729,16 +716,17 @@ df_week_global = df_week_global.rename(columns={
     "suc_ci": "total_suc_ci",
 })
 
+# KPI adopción semanal (sobre total SGM o sobre (SGM directas + CI); aquí sobre total SGM)
 df_week_global["pct_ci_sobre_sgm"] = df_week_global.apply(
     lambda r: (r["total_oc_ci"] / r["total_oc_sgm"]) if r["total_oc_sgm"] else 0.0,
     axis=1
 )
 
-# --- PLANILLA SEMANAL POR COMPRADOR --------------------------------------
+# --- PLANILLA SEMANAL POR COMPRADOR
 df_sgm_wb = load_sgm_weekly_by_buyer(desde, hasta, SGM_SUCURSAL_COL)
-df_ci_wb = load_ci_weekly_by_buyer(desde, hasta, PG_CI_SUCURSAL_COL)
+df_ci_wb  = load_ci_weekly_by_buyer(desde, hasta, PG_CI_SUCURSAL_COL)
 
-df_week_buyer = pd.merge(df_sgm_wb, df_ci_wb, on=["semana", "c_comprador"], how="outer").sort_values(["semana", "c_comprador"])
+df_week_buyer = pd.merge(df_sgm_wb, df_ci_wb, on=["semana","c_comprador"], how="outer").sort_values(["semana","c_comprador"])
 df_week_buyer = df_week_buyer.fillna(0)
 
 df_week_buyer = df_week_buyer.rename(columns={
@@ -755,6 +743,7 @@ df_week_buyer["pct_ci_sobre_sgm"] = df_week_buyer.apply(
     axis=1
 )
 
+# Enriquecer con nombres (ya tienen df_dim en el script final)
 if df_dim is not None and not df_dim.empty:
     df_week_buyer = df_week_buyer.merge(df_dim, on="c_comprador", how="left")
 else:
@@ -764,46 +753,6 @@ df_week_buyer["comprador_label"] = df_week_buyer.apply(
     lambda r: _label_comprador_ui(r.get("c_comprador"), r.get("n_comprador")),
     axis=1
 )
-
-
-# -------------------------------------------------------
-# Preparación matriz adopción semanal por comprador (data-sync)
-# -------------------------------------------------------
-df_uso_sem = load_uso_semanal_comprador(desde, hasta)
-
-if df_dim is not None and not df_dim.empty and not df_uso_sem.empty:
-    df_uso_sem = df_uso_sem.merge(df_dim, on="c_comprador", how="left")
-else:
-    if "n_comprador" not in df_uso_sem.columns:
-        df_uso_sem["n_comprador"] = None
-
-if not df_uso_sem.empty:
-    df_uso_sem["comprador_label"] = df_uso_sem.apply(
-        lambda r: _label_comprador_ui(r.get("c_comprador"), r.get("n_comprador")),
-        axis=1
-    )
-    df_uso_sem = df_uso_sem.sort_values(["semana_inicio", "comprador_label"])
-
-    week_order = (
-        df_uso_sem[["semana_yyyyww", "semana_inicio"]]
-        .drop_duplicates()
-        .sort_values("semana_inicio")["semana_yyyyww"]
-        .tolist()
-    )
-
-    df_pivot_sem = pd.pivot_table(
-        df_uso_sem,
-        index="comprador_label",
-        columns="semana_yyyyww",
-        values="pct_connexa_sem",
-        aggfunc="mean",
-        fill_value=0.0
-    ).reset_index()
-
-    cols = ["comprador_label"] + [w for w in week_order if w in df_pivot_sem.columns]
-    df_pivot_sem = df_pivot_sem[cols]
-else:
-    df_pivot_sem = pd.DataFrame(columns=["comprador_label"])
 
 
 # -------------------------------------------------------
@@ -833,6 +782,48 @@ c5.metric("% Connexa (ponderado por OC)", f"{pct_pond:.1%}")
 st.caption("Nota: la adopción se calcula sobre la actividad comparable (Connexa + SGM directas).")
 
 st.divider()
+
+# -------------------------------------------------------
+# USO SEMANAL (vista data-sync) → Matriz comprador x semana (YYYY-WW)
+# -------------------------------------------------------
+df_uso_sem = load_uso_semanal_comprador(desde, hasta)
+
+# Enriquecer con nombres
+if df_dim is not None and not df_dim.empty and not df_uso_sem.empty:
+    df_uso_sem = df_uso_sem.merge(df_dim, on="c_comprador", how="left")
+else:
+    if "n_comprador" not in df_uso_sem.columns:
+        df_uso_sem["n_comprador"] = None
+
+df_uso_sem["comprador_label"] = df_uso_sem.apply(
+    lambda r: _label_comprador_ui(r.get("c_comprador"), r.get("n_comprador")),
+    axis=1
+)
+
+# Orden semanal real (por fecha lunes ISO)
+df_uso_sem = df_uso_sem.sort_values(["semana_inicio", "comprador_label"])
+
+# Definir orden de columnas según semana_inicio
+week_order = (
+    df_uso_sem[["semana_yyyyww", "semana_inicio"]]
+    .drop_duplicates()
+    .sort_values("semana_inicio")["semana_yyyyww"]
+    .tolist()
+)
+
+# Pivot
+df_pivot_sem = pd.pivot_table(
+    df_uso_sem,
+    index="comprador_label",
+    columns="semana_yyyyww",
+    values="pct_connexa_sem",
+    aggfunc="mean",
+    fill_value=0.0
+).reset_index()
+
+# Reordenar columnas según week_order
+cols = ["comprador_label"] + [w for w in week_order if w in df_pivot_sem.columns]
+df_pivot_sem = df_pivot_sem[cols]
 
 
 # -------------------------------------------------------
@@ -994,6 +985,8 @@ with tab4:
     df_cx_m = load_connexa_mensual(desde, hasta)
     df_sgm_m = load_sgm_mensual(desde, hasta)
 
+    # Merge mensual robusto: por (mes, c_comprador)
+    # Nota: mes_dt se recalcula luego para evitar problemas por diferencias de tipo/precisión
     df_m = pd.merge(
         df_cx_m.drop(columns=["mes_dt"], errors="ignore"),
         df_sgm_m.drop(columns=["mes_dt"], errors="ignore"),
@@ -1010,8 +1003,11 @@ with tab4:
         ],
     )
     df_m = _to_int64(df_m, "c_comprador")
-    df_m["mes_dt"] = pd.to_datetime(df_m.get("mes"), errors="coerce")  # type: ignore
 
+    # mes_dt normalizado
+    df_m["mes_dt"] = pd.to_datetime(df_m.get("mes"), errors="coerce") # type: ignore
+
+    # Enriquecer con nombres
     if df_dim is not None and not df_dim.empty:
         df_m = df_m.merge(df_dim, on="c_comprador", how="left")
     else:
@@ -1034,6 +1030,7 @@ with tab4:
     if df_m.empty:
         st.info("No hay datos mensuales para el rango seleccionado.")
     else:
+        # Defaults: top 5 por actividad total del período (según master)
         top_default_labels = (
             df.sort_values("oc_total_actividad", ascending=False)["comprador_label"].head(5).tolist()
             if not df.empty else []
@@ -1133,8 +1130,12 @@ with tab4:
 
         st.divider()
 
+        # -------------------------------------------------------
+        # Drill-down: seleccionar comprador → ver proveedores (Connexa y SGM directo)
+        # -------------------------------------------------------
         st.subheader("Drill-down: Proveedores por comprador (Connexa vs SGM directas)")
 
+        # Mapping label -> código (clave técnica para parametrizar queries)
         map_label_to_code = (
             df[["comprador_label", "c_comprador"]]
             .drop_duplicates()
@@ -1167,6 +1168,7 @@ with tab4:
 
             df_prov_cx, df_prov_sgm = load_proveedores_mensual_por_comprador(desde, hasta, c_comprador)
 
+            # Normalización
             df_prov_cx = df_prov_cx[df_prov_cx["mes_dt"].notna()].copy()
             df_prov_sgm = df_prov_sgm[df_prov_sgm["mes_dt"].notna()].copy()
 
@@ -1177,8 +1179,9 @@ with tab4:
                 how="outer",
             )
             df_prov = _ensure_numeric_cols(df_prov, ["oc_connexa", "oc_sgm_directas"])
-            df_prov["c_proveedor"] = pd.to_numeric(df_prov.get("c_proveedor"), errors="coerce").astype("Int64")  # type: ignore
+            df_prov["c_proveedor"] = pd.to_numeric(df_prov.get("c_proveedor"), errors="coerce").astype("Int64") # type: ignore
 
+            # Ranking por proveedor (en todo el rango)
             tot_prov = df_prov.groupby("c_proveedor", as_index=False).agg(
                 oc_connexa=("oc_connexa", "sum"),
                 oc_sgm_directas=("oc_sgm_directas", "sum"),
@@ -1197,6 +1200,7 @@ with tab4:
                 tot_prov = tot_prov.sort_values(["oc_total"], ascending=False)
 
             tot_prov = tot_prov.head(top_prov)
+
             df_prov_top = df_prov[df_prov["c_proveedor"].isin(tot_prov["c_proveedor"])].copy()
 
             st.markdown("### Ranking de proveedores (en el rango)")
@@ -1273,6 +1277,7 @@ with tab5:
             hide_index=True,
         )
 
+        # Gráfico sugerido: OC SGM vs OC CI por semana
         fig = px.bar(
             df_week_global,
             x="semana",
@@ -1305,9 +1310,8 @@ with tab5:
             "Puede configurarse con PG_CI_SUCURSAL_COL y SGM_SUCURSAL_COL."
         )
 
-
 # -----------------------------
-# TAB 6 — Planilla semanal por comprador
+# TAB 6 — Planilla semanal global
 # -----------------------------
 with tab6:
     st.subheader("Planilla de control — Evolución semanal por comprador")
@@ -1317,7 +1321,7 @@ with tab6:
     else:
         compradores = sorted(df_week_buyer["comprador_label"].dropna().unique().tolist())
 
-        colA, colB = st.columns([2, 1])
+        colA, colB = st.columns([2,1])
         with colA:
             sel = st.multiselect(
                 "Seleccionar compradores",
@@ -1334,11 +1338,12 @@ with tab6:
             base = base[base["total_oc_sgm"] >= min_oc]
 
         st.dataframe(
-            base.sort_values(["semana", "comprador_label"]),
+            base.sort_values(["semana","comprador_label"]),
             use_container_width=True,
             hide_index=True,
         )
 
+        # Gráfico: % CI semanal por comprador
         fig = px.line(
             base.sort_values("semana"),
             x="semana",
@@ -1357,38 +1362,14 @@ with tab6:
             mime="text/csv",
         )
 
-    # =====================================================
-    # AL FINAL DEL TAB 6 — MATRIZ ADOPCIÓN SEMANAL (data-sync)
-    # =====================================================
-    st.divider()
-    st.subheader("Matriz de adopción semanal — % Connexa (OC CNX / OC SGM)")
-
-    if df_pivot_sem.empty or df_pivot_sem.shape[1] <= 1:
-        st.info("No hay datos de V_USO_SEMANAL_COMPRADOR para el rango seleccionado.")
-    else:
-        # Visual: encabezados "Semana 1..N" (opcional)
+        # Para UI: renombrar columnas YYYY-WW a Semana 1..N
         df_show = df_pivot_sem.copy()
         week_cols = [c for c in df_show.columns if c != "comprador_label"]
 
-        # Renombre para UI: Semana 1..N
         rename_map = {week_cols[i]: f"Semana {i+1}" for i in range(len(week_cols))}
         df_show = df_show.rename(columns=rename_map)
 
-        # Formato "45%"
+        # Formato porcentaje "45%"
         for c in df_show.columns:
             if c != "comprador_label":
                 df_show[c] = df_show[c].apply(lambda x: f"{float(x):.0%}" if pd.notna(x) else "")
-
-        st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-        st.download_button(
-            "Descargar CSV (matriz adopción semanal - columnas YYYY-WW)",
-            data=df_pivot_sem.to_csv(index=False).encode("utf-8"),
-            file_name="matriz_adopcion_semanal_comprador.csv",
-            mime="text/csv",
-        )
-
-        st.caption(
-            "Definición: % Connexa semanal = Total_OC_CNX / Total_OC_SGM, según la vista [data-sync].[dbo].[V_USO_SEMANAL_COMPRADOR]. "
-            "En el CSV se conservan las columnas originales 'YYYY-WW' para trazabilidad."
-        )
