@@ -26,7 +26,8 @@ TABLAS_FECHAS_ESTANDAR = [
     "t052_articulos_proveedor", "t710_estadis_oferta_folder", "t710_estadis_precios",
     "t710_estadis_reposicion", "t117_compradores", "t114_rubros",
     "base_forecast_oc_demoradas","t080_oc_pendientes","base_transferencias_pendientes",
-    "t020_proveedor_dias_entrega_deta","t020_proveedor_dias_entrega_cabe"
+    "t020_proveedor_dias_entrega_deta","t020_proveedor_dias_entrega_cabe",
+    "mv_uso_mensual_comprador", "mv_uso_mensual_proveedor","mv_uso_semanal_comprador","mv_uso_semanal_proveedor", 
 
 ]
 tablas_dict_1 = {t: "fecha_extraccion" for t in TABLAS_FECHAS_ESTANDAR}
