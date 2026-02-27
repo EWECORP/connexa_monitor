@@ -116,7 +116,38 @@ QRY_PROVEEDORES = """
     SELECT c_proveedor, n_proveedor
     FROM src.m_10_proveedores;
     """
-    
+
+QRY_PROVEEDOR_COMPRADOR = text("""
+WITH m AS (
+  SELECT
+    c_proveedor_primario::bigint              AS c_proveedor,
+    cod_comprador::bigint                     AS cod_comprador,
+    COUNT(*)                                  AS sku_cnt
+  FROM src.base_productos_vigentes
+  WHERE c_proveedor_primario IS NOT NULL
+  GROUP BY 1, 2
+),
+best AS (
+  -- Si un proveedor aparece con múltiples compradores (caso posible),
+  -- se elige el comprador con más SKUs vigentes para ese proveedor.
+  SELECT DISTINCT ON (c_proveedor)
+    c_proveedor,
+    cod_comprador,
+    sku_cnt
+  FROM m
+  ORDER BY c_proveedor, sku_cnt DESC
+)
+SELECT
+  b.c_proveedor,
+  b.cod_comprador,
+  COALESCE(NULLIF(TRIM(c.n_comprador), ''), b.cod_comprador::text) AS n_comprador,
+  b.sku_cnt
+FROM best b
+LEFT JOIN src.m_9_compradores c
+  ON c.cod_comprador::bigint = b.cod_comprador
+ORDER BY b.c_proveedor;
+""")
+
 # ============================================================
 # Funciones públicas — STOCK_VENTAS
 # ============================================================
