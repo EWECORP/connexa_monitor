@@ -78,14 +78,14 @@ DDL_VIEW_OC_GENERADAS_SUC_EXT = """
 CREATE OR REPLACE VIEW mon.v_oc_generadas_mensual_sucursal_ext
 AS
 WITH base AS (
-        SELECT date_trunc('month'::text, (t080_oc_precarga_kikker.f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))::date AS mes,
-          t080_oc_precarga_kikker.c_comprador,
-          t080_oc_precarga_kikker.c_proveedor,
-          t080_oc_precarga_kikker.c_sucu_empr::character varying(10) AS id_tienda,
-          t080_oc_precarga_kikker.c_compra_kikker,
-          COALESCE(t080_oc_precarga_kikker.q_bultos_kilos_diarco, 0::numeric) AS q_bultos
-          FROM t080_oc_precarga_kikker
-        WHERE t080_oc_precarga_kikker.f_alta_sist IS NOT NULL
+        SELECT date_trunc('month'::text, (public.t080_oc_precarga_connexa.f_alta_sist AT TIME ZONE 'America/Argentina/Buenos_Aires'::text))::date AS mes,
+          public.t080_oc_precarga_connexa.c_comprador,
+          public.t080_oc_precarga_connexa.c_proveedor,
+          public.t080_oc_precarga_connexa.c_sucu_empr::character varying(10) AS id_tienda,
+          public.t080_oc_precarga_connexa.c_compra_connexa,
+          COALESCE(public.t080_oc_precarga_connexa.q_bultos_kilos_diarco, 0::numeric) AS q_bultos
+          FROM public.t080_oc_precarga_connexa
+        WHERE public.t080_oc_precarga_connexa.f_alta_sist IS NOT NULL
       )
 SELECT b.mes,
   b.c_comprador,
@@ -94,7 +94,7 @@ SELECT b.mes,
   TRIM(BOTH FROM p.n_proveedor) AS n_proveedor,
   b.id_tienda,
   s.suc_nombre,
-  count(DISTINCT b.c_compra_kikker) AS total_oc,
+  count(DISTINCT b.c_compra_connexa) AS total_oc,
   sum(b.q_bultos) AS total_bultos
   FROM base b
     LEFT JOIN src.m_9_compradores c ON b.c_comprador = COALESCE(NULLIF(c.cod_comprador::text, ''::text)::numeric, 0::numeric)
@@ -102,13 +102,16 @@ SELECT b.mes,
     LEFT JOIN src.m_91_sucursales s ON b.id_tienda::text = s.id_tienda
 GROUP BY b.mes, b.c_comprador, c.n_comprador, b.c_proveedor, (TRIM(BOTH FROM p.n_proveedor)), b.id_tienda, s.suc_nombre
 ORDER BY b.mes, b.id_tienda, b.c_comprador, b.c_proveedor;
+
+ALTER TABLE mon.v_oc_generadas_mensual_sucursal_ext
+    OWNER TO postgres;
 """
 
 IDX_OC_GENERADAS = [
-    "CREATE INDEX IF NOT EXISTS idx_t080_alta_sist     ON public.t080_oc_precarga_kikker (f_alta_sist)",
-    "CREATE INDEX IF NOT EXISTS idx_t080_comprador     ON public.t080_oc_precarga_kikker (c_comprador)",
-    "CREATE INDEX IF NOT EXISTS idx_t080_proveedor     ON public.t080_oc_precarga_kikker (c_proveedor)",
-    "CREATE INDEX IF NOT EXISTS idx_t080_compra_kikker ON public.t080_oc_precarga_kikker (c_compra_kikker)"
+    "CREATE INDEX IF NOT EXISTS idx_t080_connexa_alta_sist  ON public.t080_oc_precarga_connexa (f_alta_sist)",
+    "CREATE INDEX IF NOT EXISTS idx_t080_connexa_comprador  ON public.t080_oc_precarga_connexa (c_comprador)",
+    "CREATE INDEX IF NOT EXISTS idx_t080_connexa_proveedor  ON public.t080_oc_precarga_connexa (c_proveedor)",
+    "CREATE INDEX IF NOT EXISTS idx_t080_compra_connexa     ON public.t080_oc_precarga_connexa (c_compra_connexa)"
 ]
 
 IDX_DIM = [
