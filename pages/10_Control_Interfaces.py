@@ -41,7 +41,8 @@ tablas_dict_2 = {
     "m_96_stock_seguridad": "f_proc",
     "t702_est_vtas_por_articulo": "f_venta",
     "t702_est_vtas_por_articulo_dbarrio": "f_venta",
-    "base_ventas_extendida": "fecha_procesado"
+    "base_ventas_extendida": "fecha_procesado",
+    "t_competencia_detalle": "f_alta"
 }
 TABLAS_TOTAL = {**tablas_dict_1, **tablas_dict_2}
 
