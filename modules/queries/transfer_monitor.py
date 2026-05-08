@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import uuid
 from typing import Iterable, List, Set
 
 import pandas as pd
@@ -79,6 +80,41 @@ WITH ranked AS (
     WHERE p.c_sucu_empr IS NOT NULL
       AND p.c_articulo IS NOT NULL
       AND p.c_proveedor_primario = :proveedor
+      AND p.c_sucu_empr = ANY(CAST(:lista_sucursales AS int[]))
+      AND p.c_articulo = ANY(CAST(:lista_articulos AS bigint[]))
+)
+SELECT
+    dest_store_num,
+    item_code_num,
+    c_proveedor,
+    n_proveedor,
+    abastecimiento,
+    cod_cd
+FROM ranked
+WHERE rn = 1;
+"""
+)
+
+
+SQL_PRODUCT_MAP_BY_CANDIDATES = text(
+    """
+WITH ranked AS (
+    SELECT
+        p.c_sucu_empr::int AS dest_store_num,
+        p.c_articulo::bigint AS item_code_num,
+        p.c_proveedor_primario::int AS c_proveedor,
+        COALESCE(NULLIF(TRIM(pr.n_proveedor), ''), CAST(p.c_proveedor_primario AS text)) AS n_proveedor,
+        p.abastecimiento::text AS abastecimiento,
+        p.cod_cd::text AS cod_cd,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.c_sucu_empr, p.c_articulo
+            ORDER BY p.c_proveedor_primario NULLS LAST
+        ) AS rn
+    FROM src.base_productos_vigentes p
+    LEFT JOIN src.m_10_proveedores pr
+           ON pr.c_proveedor = p.c_proveedor_primario
+    WHERE p.c_sucu_empr IS NOT NULL
+      AND p.c_articulo IS NOT NULL
       AND p.c_sucu_empr = ANY(CAST(:lista_sucursales AS int[]))
       AND p.c_articulo = ANY(CAST(:lista_articulos AS bigint[]))
 )
@@ -189,9 +225,182 @@ GROUP BY codigo_articulo, codigo_sucursal, codigo_proveedor, stock, transfer_pen
 )
 
 
+SQL_BLOCKLIST_EXISTS = text(
+    """
+SELECT to_regclass('audit.transfer_blocklist') IS NOT NULL AS exists;
+"""
+)
+
+
+SQL_TRANSFER_BLOCKLIST_BY_IDS = text(
+    """
+SELECT
+    LOWER(connexa_detail_uuid::text) AS connexa_detail_uuid,
+    LOWER(connexa_header_uuid::text) AS connexa_header_uuid,
+    motivo,
+    usuario,
+    observacion,
+    active,
+    created_at,
+    updated_at
+FROM audit.transfer_blocklist
+WHERE active IS TRUE
+  AND connexa_detail_uuid = ANY(CAST(:lista_ids AS uuid[]));
+"""
+)
+
+
+SQL_TRANSFER_BLOCKLIST_UPSERT = text(
+    """
+INSERT INTO audit.transfer_blocklist (
+    connexa_detail_uuid,
+    connexa_header_uuid,
+    motivo,
+    usuario,
+    observacion,
+    active
+)
+VALUES (
+    CAST(:connexa_detail_uuid AS uuid),
+    CAST(:connexa_header_uuid AS uuid),
+    :motivo,
+    :usuario,
+    :observacion,
+    :active
+)
+ON CONFLICT (connexa_detail_uuid) DO UPDATE
+   SET connexa_header_uuid = EXCLUDED.connexa_header_uuid,
+       motivo             = EXCLUDED.motivo,
+       usuario            = EXCLUDED.usuario,
+       observacion        = EXCLUDED.observacion,
+       active             = EXCLUDED.active,
+       updated_at         = NOW();
+"""
+)
+
+
 def _chunks(values: List[str], size: int) -> Iterable[List[str]]:
     for i in range(0, len(values), size):
         yield values[i:i + size]
+
+
+def _normalize_uuid_strings(values: Iterable[object]) -> List[str]:
+    normalized: List[str] = []
+    for value in values:
+        if value is None:
+            continue
+        raw = str(value).strip().lower()
+        if not raw:
+            continue
+        try:
+            normalized.append(str(uuid.UUID(raw)))
+        except Exception:
+            continue
+    return sorted(set(normalized))
+
+
+def _empty_blocklist_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "connexa_detail_uuid",
+            "connexa_header_uuid",
+            "motivo",
+            "usuario",
+            "observacion",
+            "active",
+            "created_at",
+            "updated_at",
+        ]
+    )
+
+
+def transfer_blocklist_table_exists(pg_engine: Engine) -> bool:
+    with pg_engine.connect() as conn:
+        result = conn.execute(SQL_BLOCKLIST_EXISTS).scalar()
+    return bool(result)
+
+
+def ensure_transfer_blocklist_table(pg_engine: Engine) -> None:
+    statements = [
+        """
+        CREATE SCHEMA IF NOT EXISTS audit;
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS audit.transfer_blocklist (
+            connexa_detail_uuid uuid PRIMARY KEY,
+            connexa_header_uuid uuid NULL,
+            motivo text NOT NULL,
+            usuario text NOT NULL,
+            observacion text NULL,
+            active boolean NOT NULL DEFAULT TRUE,
+            created_at timestamptz NOT NULL DEFAULT NOW(),
+            updated_at timestamptz NOT NULL DEFAULT NOW()
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS ix_transfer_blocklist_active
+            ON audit.transfer_blocklist (active, created_at DESC);
+        """,
+    ]
+
+    with pg_engine.begin() as conn:
+        for statement in statements:
+            conn.execute(text(statement))
+
+
+def load_transfer_blocklist(pg_engine: Engine, detail_uuids: Iterable[object]) -> pd.DataFrame:
+    ids = _normalize_uuid_strings(detail_uuids)
+    if not ids or not transfer_blocklist_table_exists(pg_engine):
+        return _empty_blocklist_df()
+
+    with pg_engine.connect() as conn:
+        df = pd.read_sql(
+            SQL_TRANSFER_BLOCKLIST_BY_IDS,
+            conn,
+            params={"lista_ids": ids},
+            parse_dates=["created_at", "updated_at"],
+        )
+
+    if df.empty:
+        return _empty_blocklist_df()
+
+    for col in ("connexa_detail_uuid", "connexa_header_uuid"):
+        df[col] = df[col].fillna("").astype(str).str.strip().str.lower()
+        df.loc[df[col].eq(""), col] = pd.NA
+
+    for col in ("motivo", "usuario", "observacion"):
+        df[col] = df[col].fillna("").astype(str).str.strip()
+
+    df["active"] = df["active"].fillna(False).astype(bool)
+    return df
+
+
+def upsert_transfer_blocklist(pg_engine: Engine, rows: Iterable[dict]) -> int:
+    payload = []
+    for row in rows:
+        detail_uuid = _normalize_uuid_strings([row.get("connexa_detail_uuid")])
+        if not detail_uuid:
+            continue
+
+        header_uuid = _normalize_uuid_strings([row.get("connexa_header_uuid")])
+        payload.append(
+            {
+                "connexa_detail_uuid": detail_uuid[0],
+                "connexa_header_uuid": header_uuid[0] if header_uuid else None,
+                "motivo": str(row.get("motivo") or "").strip() or "BLOQUEO_MANUAL",
+                "usuario": str(row.get("usuario") or "").strip() or "streamlit",
+                "observacion": str(row.get("observacion") or "").strip() or None,
+                "active": bool(row.get("active", True)),
+            }
+        )
+
+    if not payload:
+        return 0
+
+    ensure_transfer_blocklist_table(pg_engine)
+    with pg_engine.begin() as conn:
+        conn.execute(SQL_TRANSFER_BLOCKLIST_UPSERT, payload)
+    return len(payload)
 
 
 def load_supplier_dim(pg_engine: Engine) -> pd.DataFrame:
@@ -259,6 +468,48 @@ def load_product_map_for_supplier(
             conn,
             params={
                 "proveedor": int(proveedor),
+                "lista_sucursales": sucursales,
+                "lista_articulos": articulos,
+            },
+        )
+
+    if df.empty:
+        return pd.DataFrame(
+            columns=["dest_store_num", "item_code_num", "c_proveedor", "n_proveedor", "abastecimiento", "cod_cd"]
+        )
+
+    for col in ("dest_store_num", "item_code_num", "c_proveedor"):
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+    for col in ("n_proveedor", "abastecimiento", "cod_cd"):
+        if col in df.columns:
+            df[col] = df[col].fillna("").astype(str).str.strip()
+
+    return df
+
+
+def load_product_map_for_candidates(
+    pg_engine: Engine,
+    df_norm: pd.DataFrame,
+) -> pd.DataFrame:
+    if df_norm.empty:
+        return pd.DataFrame(
+            columns=["dest_store_num", "item_code_num", "c_proveedor", "n_proveedor", "abastecimiento", "cod_cd"]
+        )
+
+    sucursales = _extract_positive_ints(df_norm["dest_store_num"])
+    articulos = _extract_positive_ints(df_norm["item_code_num"])
+
+    if not sucursales or not articulos:
+        return pd.DataFrame(
+            columns=["dest_store_num", "item_code_num", "c_proveedor", "n_proveedor", "abastecimiento", "cod_cd"]
+        )
+
+    with pg_engine.connect() as conn:
+        df = pd.read_sql(
+            SQL_PRODUCT_MAP_BY_CANDIDATES,
+            conn,
+            params={
                 "lista_sucursales": sucursales,
                 "lista_articulos": articulos,
             },
@@ -620,6 +871,50 @@ def enrich_with_stock_and_snd(
     return df
 
 
+def merge_transfer_blocklist(df_base: pd.DataFrame, df_blocklist: pd.DataFrame) -> pd.DataFrame:
+    out = df_base.copy()
+    if df_base.empty:
+        return out
+
+    if df_blocklist.empty:
+        out["bloqueada_manual"] = False
+        out["bloqueo_motivo"] = ""
+        out["bloqueo_usuario"] = ""
+        out["bloqueo_observacion"] = ""
+        out["bloqueo_created_at"] = pd.NaT
+        return out
+
+    block = df_blocklist.rename(
+        columns={
+            "motivo": "bloqueo_motivo",
+            "usuario": "bloqueo_usuario",
+            "observacion": "bloqueo_observacion",
+            "created_at": "bloqueo_created_at",
+        }
+    )
+    block["bloqueada_manual"] = True
+
+    out = out.merge(
+        block[
+            [
+                "connexa_detail_uuid",
+                "bloqueada_manual",
+                "bloqueo_motivo",
+                "bloqueo_usuario",
+                "bloqueo_observacion",
+                "bloqueo_created_at",
+            ]
+        ],
+        how="left",
+        on="connexa_detail_uuid",
+    )
+
+    out["bloqueada_manual"] = out["bloqueada_manual"].fillna(False).astype(bool)
+    for col in ("bloqueo_motivo", "bloqueo_usuario", "bloqueo_observacion"):
+        out[col] = out[col].fillna("").astype(str).str.strip()
+    return out
+
+
 def mark_already_published(df: pd.DataFrame, df_staging: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     publicados: Set[str] = set()
@@ -665,6 +960,14 @@ def assign_stock_todo_o_nada(df: pd.DataFrame) -> pd.DataFrame:
                 row["q_bultos_asignado"] = 0.0
                 row["publicable"] = True
                 row["motivo_no_publicado"] = ""
+                row["saldo_despues"] = round(saldo, 3)
+                resultados.append(row)
+                continue
+
+            if bool(row.get("bloqueada_manual", False)):
+                row["q_bultos_asignado"] = 0.0
+                row["publicable"] = False
+                row["motivo_no_publicado"] = "BLOQUEADA_MANUALMENTE"
                 row["saldo_despues"] = round(saldo, 3)
                 resultados.append(row)
                 continue
@@ -825,6 +1128,8 @@ def _derive_operational_state(row: pd.Series) -> str:
         return "SGM::PENDIENTE"
 
     if connexa_estado == "PRECARGA_CONNEXA":
+        if bool(row.get("bloqueada_manual", False)):
+            return "CONNEXA::BLOQUEADA_MANUAL"
         if bool(row.get("ya_publicado", False)):
             return "CONNEXA::YA_INSERTADA_DMZ"
         if bool(row.get("publicable_ahora", False)):
@@ -859,8 +1164,10 @@ def build_current_pending_snapshot(
     df_staging = load_staging_status(sql_engine, df_norm["connexa_detail_uuid"].tolist())
     df_aco = load_aco_valkimia(sql_engine, df_norm)
     df_stock = load_stock_base(pg_engine, df_norm)
+    df_blocklist = load_transfer_blocklist(pg_engine, df_norm["connexa_detail_uuid"].tolist())
 
     df_work = enrich_with_stock_and_snd(df_norm, df_stock, df_aco)
+    df_work = merge_transfer_blocklist(df_work, df_blocklist)
     df_work = mark_already_published(df_work, df_staging)
     df_work = assign_stock_todo_o_nada(df_work)
 
@@ -889,7 +1196,31 @@ def build_history_snapshot(
         return pd.DataFrame()
 
     df_staging = load_staging_status(sql_engine, df_hist["connexa_detail_uuid"].tolist())
+    df_blocklist = load_transfer_blocklist(pg_engine, df_hist["connexa_detail_uuid"].tolist())
+    df_hist = merge_transfer_blocklist(df_hist, df_blocklist)
     df_hist = mark_already_published(df_hist, df_staging)
     df_vk = load_vk_latest_status(sql_engine, df_hist["connexa_detail_uuid"].tolist())
     df_hist = merge_downstream_status(df_hist, df_staging, df_vk)
     return df_hist
+
+
+def build_current_pending_control_snapshot(
+    connexa_engine: Engine,
+    pg_engine: Engine,
+    sql_engine: Engine,
+) -> pd.DataFrame:
+    df_raw = load_connexa_pending_raw(connexa_engine)
+    if df_raw.empty:
+        return pd.DataFrame()
+
+    df_pending = normalize_transfer_df(df_raw)
+    df_product_map = load_product_map_for_candidates(pg_engine, df_pending)
+    df_pending = enrich_with_supplier(df_pending, df_product_map)
+
+    df_staging = load_staging_status(sql_engine, df_pending["connexa_detail_uuid"].tolist())
+    df_blocklist = load_transfer_blocklist(pg_engine, df_pending["connexa_detail_uuid"].tolist())
+    df_pending = merge_transfer_blocklist(df_pending, df_blocklist)
+    df_pending = mark_already_published(df_pending, df_staging)
+    df_vk = load_vk_latest_status(sql_engine, df_pending["connexa_detail_uuid"].tolist())
+    df_pending = merge_downstream_status(df_pending, df_staging, df_vk)
+    return df_pending
