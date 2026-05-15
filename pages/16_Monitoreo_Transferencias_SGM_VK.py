@@ -10,9 +10,13 @@ import streamlit as st
 from modules.db import get_connexa_engine, get_diarco_engine, get_sqlserver_engine
 from modules.ui import render_header
 from modules.queries.transfer_monitor import (
+    build_current_pending_control_snapshot,
     build_current_pending_snapshot,
+    build_history_control_snapshot,
     build_history_snapshot,
     load_supplier_dim,
+    load_vk_user_transfer_range,
+    load_vk_header_status,
 )
 
 
@@ -59,6 +63,25 @@ def _supplier_label(row: pd.Series) -> str:
     return codigo_txt
 
 
+def _format_supplier_name(nombre: object, codigo: object) -> str:
+    nombre_txt = str(nombre or "").strip()
+    if pd.notna(codigo):
+        try:
+            codigo_txt = str(int(codigo))
+        except Exception:
+            codigo_txt = str(codigo).strip()
+    else:
+        codigo_txt = ""
+
+    if nombre_txt and codigo_txt:
+        return f"{nombre_txt} ({codigo_txt})"
+    if nombre_txt:
+        return nombre_txt
+    if codigo_txt:
+        return codigo_txt
+    return "-"
+
+
 def _count_mask(df: pd.DataFrame, mask: pd.Series) -> int:
     if df.empty:
         return 0
@@ -69,6 +92,20 @@ def _sum_col(df: pd.DataFrame, col: str) -> float:
     if df.empty or col not in df.columns:
         return 0.0
     return float(pd.to_numeric(df[col], errors="coerce").fillna(0).sum())
+
+
+def _distinct_count(df: pd.DataFrame, col: str, mask: pd.Series | None = None) -> int:
+    if df.empty or col not in df.columns:
+        return 0
+
+    work = df
+    if mask is not None:
+        work = df[mask.fillna(False)].copy()
+
+    if work.empty:
+        return 0
+
+    return int(work[col].dropna().astype(str).str.strip().replace("", pd.NA).dropna().nunique())
 
 
 def _build_estado_counts(df: pd.DataFrame) -> pd.DataFrame:
@@ -140,6 +177,160 @@ def _build_stock_summary(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _build_pipeline_stage_counts(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["etapa", "cabeceras", "lineas"])
+
+    dmz_mask = _upper_text_series(df, "dmz_estado").ne("")
+    sgm_ok_mask = _upper_text_series(df, "dmz_estado").isin(["PROCESADO", "DUPLICADO"])
+    vk_sent_mask = _upper_text_series(df, "dmz_estado_vk").ne("") | _upper_text_series(df, "vk_INIEst").ne("")
+    vk_trace_mask = _upper_text_series(df, "vk_INIEst").ne("")
+
+    etapas = [
+        {
+            "etapa": "Generadas en Connexa",
+            "cabeceras": _distinct_count(df, "connexa_header_uuid"),
+            "lineas": len(df),
+        },
+        {
+            "etapa": "Cargadas en DMZ / Pend. SGM",
+            "cabeceras": _distinct_count(df, "connexa_header_uuid", dmz_mask),
+            "lineas": _count_mask(df, dmz_mask),
+        },
+        {
+            "etapa": "Procesadas por SGM",
+            "cabeceras": _distinct_count(df, "connexa_header_uuid", sgm_ok_mask),
+            "lineas": _count_mask(df, sgm_ok_mask),
+        },
+        {
+            "etapa": "Enviadas a Valkimia",
+            "cabeceras": _distinct_count(df, "connexa_header_uuid", vk_sent_mask),
+            "lineas": _count_mask(df, vk_sent_mask),
+        },
+        {
+            "etapa": "Con retorno de Valkimia",
+            "cabeceras": _distinct_count(df, "connexa_header_uuid", vk_trace_mask),
+            "lineas": _count_mask(df, vk_trace_mask),
+        },
+    ]
+    return pd.DataFrame(etapas)
+
+
+def _build_vk_result_counts(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "resultado" not in df.columns:
+        return pd.DataFrame(columns=["resultado", "cabeceras"])
+
+    out = (
+        df.assign(resultado=df["resultado"].fillna("").astype(str).str.strip().replace("", "SIN_RESULTADO"))
+        ["resultado"]
+        .value_counts(dropna=False)
+        .rename_axis("resultado")
+        .reset_index(name="cabeceras")
+    )
+    return out
+
+
+def _first_non_empty(values: pd.Series) -> str:
+    for value in values.tolist():
+        if pd.isna(value):
+            continue
+        txt = str(value).strip()
+        if txt:
+            return txt
+    return ""
+
+
+def _build_vk_header_display(df_vk_headers: pd.DataFrame, df_history: pd.DataFrame) -> pd.DataFrame:
+    if df_vk_headers.empty:
+        return df_vk_headers.copy()
+
+    out = df_vk_headers.copy()
+    if df_history.empty or "connexa_header_uuid" not in df_history.columns:
+        out["proveedor_label"] = "-"
+        out["sucursal_label"] = "-"
+        return out
+
+    cols = [c for c in ["connexa_header_uuid", "n_proveedor", "c_proveedor", "dest_store_num"] if c in df_history.columns]
+    if "connexa_header_uuid" not in cols:
+        out["proveedor_label"] = "-"
+        out["sucursal_label"] = "-"
+        return out
+
+    base = df_history[cols].copy()
+    grouped = (
+        base.groupby("connexa_header_uuid", dropna=False, as_index=False)
+        .agg(
+            n_proveedor=("n_proveedor", _first_non_empty) if "n_proveedor" in base.columns else ("connexa_header_uuid", lambda s: ""),
+            c_proveedor=("c_proveedor", "min") if "c_proveedor" in base.columns else ("connexa_header_uuid", lambda s: pd.NA),
+            dest_store_num=("dest_store_num", "min") if "dest_store_num" in base.columns else ("connexa_header_uuid", lambda s: pd.NA),
+        )
+    )
+
+    grouped["proveedor_label"] = grouped.apply(
+        lambda row: _format_supplier_name(row.get("n_proveedor"), row.get("c_proveedor")),
+        axis=1,
+    )
+    grouped["sucursal_label"] = (
+        pd.to_numeric(grouped.get("dest_store_num"), errors="coerce")
+        .astype("Int64")
+        .astype(str)
+        .replace("<NA>", "-")
+    )
+
+    out = out.merge(
+        grouped[["connexa_header_uuid", "proveedor_label", "sucursal_label"]],
+        how="left",
+        on="connexa_header_uuid",
+    )
+    out["proveedor_label"] = out["proveedor_label"].fillna("-").astype(str).str.strip()
+    out["sucursal_label"] = out["sucursal_label"].fillna("-").astype(str).str.strip()
+    return out
+
+
+def _build_weekly_user_transfer_summary(df: pd.DataFrame, desde: date, hasta: date) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["Usuario", "Origen", "Total"])
+
+    work = df.copy()
+    work["usuario_label"] = work["c_usuario"].fillna("SIN_USUARIO").astype(str).str.strip().str.upper()
+    work.loc[work["usuario_label"].eq(""), "usuario_label"] = "SIN_USUARIO"
+    work["origen_label"] = work["usuario_label"].eq("CONNEXA").map({True: "Connexa", False: "Usuario"})
+
+    week_start = pd.to_datetime(work["f_alta"], errors="coerce")
+    week_start = week_start.dt.normalize() - pd.to_timedelta(week_start.dt.weekday.fillna(0), unit="D")
+    work["week_start"] = week_start
+
+    week_from = pd.Timestamp(desde) - pd.to_timedelta(pd.Timestamp(desde).weekday(), unit="D")
+    week_to = pd.Timestamp(hasta) - pd.to_timedelta(pd.Timestamp(hasta).weekday(), unit="D")
+    week_range = pd.date_range(start=week_from, end=week_to, freq="7D")
+
+    pivot = (
+        work.pivot_table(
+            index=["usuario_label", "origen_label"],
+            columns="week_start",
+            values="transfer_key",
+            aggfunc="count",
+            fill_value=0,
+        )
+        .reset_index()
+    )
+
+    for week in week_range:
+        if week not in pivot.columns:
+            pivot[week] = 0
+
+    week_columns = list(week_range)
+    pivot["Total"] = pivot[week_columns].sum(axis=1)
+    pivot = pivot.rename(columns={"usuario_label": "Usuario", "origen_label": "Origen"})
+
+    rename_map = {week: f"Sem {week.strftime('%d/%m')}" for week in week_columns}
+    pivot = pivot.rename(columns=rename_map)
+
+    ordered_cols = ["Usuario", "Origen", "Total"] + [rename_map[week] for week in week_columns]
+    pivot = pivot[ordered_cols].sort_values(["Origen", "Total", "Usuario"], ascending=[True, False, True]).reset_index(drop=True)
+    return pivot
+
+
 @st.cache_data(ttl=TTL, show_spinner=False)
 def _load_suppliers() -> pd.DataFrame:
     pg_engine = get_diarco_engine()
@@ -159,6 +350,18 @@ def _load_current_snapshot(proveedor: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=TTL, show_spinner=True)
+def _load_current_control_snapshot() -> pd.DataFrame:
+    connexa_engine = get_connexa_engine()
+    pg_engine = get_diarco_engine()
+    sql_engine = get_sqlserver_engine()
+
+    if connexa_engine is None or pg_engine is None or sql_engine is None:
+        return pd.DataFrame()
+
+    return build_current_pending_control_snapshot(connexa_engine, pg_engine, sql_engine)
+
+
+@st.cache_data(ttl=TTL, show_spinner=True)
 def _load_history_snapshot(proveedor: int, desde: date, hasta: date) -> pd.DataFrame:
     connexa_engine = get_connexa_engine()
     pg_engine = get_diarco_engine()
@@ -168,6 +371,36 @@ def _load_history_snapshot(proveedor: int, desde: date, hasta: date) -> pd.DataF
         return pd.DataFrame()
 
     return build_history_snapshot(connexa_engine, pg_engine, sql_engine, desde, hasta, proveedor)
+
+
+@st.cache_data(ttl=TTL, show_spinner=True)
+def _load_history_control_snapshot(desde: date, hasta: date) -> pd.DataFrame:
+    connexa_engine = get_connexa_engine()
+    pg_engine = get_diarco_engine()
+    sql_engine = get_sqlserver_engine()
+
+    if connexa_engine is None or pg_engine is None or sql_engine is None:
+        return pd.DataFrame()
+
+    return build_history_control_snapshot(connexa_engine, pg_engine, sql_engine, desde, hasta)
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def _load_vk_header_summary(header_uuids: tuple[str, ...]) -> pd.DataFrame:
+    sql_engine = get_sqlserver_engine()
+    if sql_engine is None or not header_uuids:
+        return pd.DataFrame()
+
+    return load_vk_header_status(sql_engine, list(header_uuids))
+
+
+@st.cache_data(ttl=TTL, show_spinner=False)
+def _load_vk_user_transfer_summary(desde: date, hasta: date) -> pd.DataFrame:
+    sql_engine = get_sqlserver_engine()
+    if sql_engine is None:
+        return pd.DataFrame()
+
+    return load_vk_user_transfer_range(sql_engine, desde, hasta)
 
 
 st.markdown(
@@ -195,14 +428,153 @@ supplier_options["label"] = supplier_options.apply(_supplier_label, axis=1)
 label_to_supplier = dict(zip(supplier_options["label"], supplier_options["c_proveedor"]))
 
 default_from = date.today() - timedelta(days=30)
-f1, f2, f3 = st.columns([2, 1, 1])
+f1, f2 = st.columns(2)
 with f1:
-    proveedor_label = st.selectbox("Proveedor", sorted(label_to_supplier.keys()))
-with f2:
     desde = st.date_input("Desde", value=default_from)
-with f3:
+with f2:
     hasta = st.date_input("Hasta", value=date.today())
 
+global_current = _load_current_control_snapshot()
+global_history = _load_history_control_snapshot(desde, hasta)
+
+header_ids = tuple(
+    sorted(
+        {
+            str(x).strip().lower()
+            for x in global_history.get("connexa_header_uuid", pd.Series(dtype="object")).dropna().tolist()
+            if str(x).strip()
+        }
+    )
+)
+vk_header_summary = _load_vk_header_summary(header_ids)
+vk_header_display = _build_vk_header_display(vk_header_summary, global_history)
+vk_user_transfers = _load_vk_user_transfer_summary(desde, hasta)
+weekly_user_summary = _build_weekly_user_transfer_summary(vk_user_transfers, desde, hasta)
+
+pipeline_counts = _build_pipeline_stage_counts(global_history)
+vk_result_counts = _build_vk_result_counts(vk_header_summary)
+
+st.subheader("Resumen general del pipeline")
+st.caption(
+    f"Rango analizado: {desde.strftime('%d/%m/%Y')} al {hasta.strftime('%d/%m/%Y')}."
+)
+st.info(
+    "Este bloque resume transferencias originadas en Connexa y su traza aguas abajo "
+    "en DMZ / SGM / Valkimia. No incluye transferencias cargadas manualmente por usuarios en SGM."
+)
+
+g1, g2, g3, g4, g5, g6 = st.columns(6)
+g1.metric("Cabeceras Connexa", f"{_distinct_count(global_history, 'connexa_header_uuid'):,}")
+g2.metric("Líneas Connexa", f"{len(global_history):,}")
+g3.metric("Cabeceras en DMZ", f"{_distinct_count(global_history, 'connexa_header_uuid', _upper_text_series(global_history, 'dmz_estado').ne('')):,}")
+g4.metric("Procesadas SGM", f"{_distinct_count(global_history, 'connexa_header_uuid', _upper_text_series(global_history, 'dmz_estado').isin(['PROCESADO', 'DUPLICADO'])):,}")
+g5.metric("Con traza VK", f"{_distinct_count(global_history, 'connexa_header_uuid', _upper_text_series(global_history, 'vk_INIEst').ne('')):,}")
+g6.metric("Cabeceras cerrables VK", f"{_count_mask(vk_header_summary, _bool_series(vk_header_summary, 'cerrable')):,}")
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Pendientes actuales en PRECARGA", f"{_distinct_count(global_current, 'connexa_header_uuid'):,}")
+c2.metric("Líneas actuales en PRECARGA", f"{len(global_current):,}")
+c3.metric("Líneas actuales ya en DMZ", f"{_count_mask(global_current, _bool_series(global_current, 'ya_publicado')):,}")
+c4.metric("Líneas actuales con traza VK", f"{_count_mask(global_current, _upper_text_series(global_current, 'vk_INIEst').ne('')):,}")
+
+st.markdown("**Transferencias registradas en Valkimia por usuario**")
+u1, u2, u3, u4 = st.columns(4)
+u1.metric("Transferencias en período", f"{len(vk_user_transfers):,}")
+u2.metric(
+    "Generadas por Connexa",
+    f"{_count_mask(vk_user_transfers, _upper_text_series(vk_user_transfers, 'c_usuario').eq('CONNEXA')):,}",
+)
+u3.metric(
+    "Generadas por usuarios",
+    f"{_count_mask(vk_user_transfers, _upper_text_series(vk_user_transfers, 'c_usuario').ne('CONNEXA')):,}",
+)
+u4.metric(
+    "Usuarios manuales activos",
+    f"{_distinct_count(vk_user_transfers[~_upper_text_series(vk_user_transfers, 'c_usuario').eq('CONNEXA')], 'c_usuario'):,}",
+)
+
+if weekly_user_summary.empty:
+    st.info("No se encontraron transferencias registradas en Valkimia por usuario en el período seleccionado.")
+else:
+    st.dataframe(
+        weekly_user_summary,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+sum1, sum2 = st.columns(2)
+with sum1:
+    st.markdown("**Pipeline por etapa**")
+    if pipeline_counts.empty:
+        st.info("No hay transferencias Connexa en el rango seleccionado.")
+    else:
+        fig = px.bar(
+            pipeline_counts,
+            x="cabeceras",
+            y="etapa",
+            orientation="h",
+            text="cabeceras",
+            title="Cabeceras por etapa",
+        )
+        fig.update_layout(height=360, yaxis_title="", xaxis_title="Cabeceras")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(
+            pipeline_counts.rename(columns={"etapa": "Etapa", "cabeceras": "Cabeceras", "lineas": "Líneas"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+with sum2:
+    st.markdown("**Resultado por cabecera en Valkimia**")
+    if vk_result_counts.empty:
+        st.info("No se encontraron retornos por cabecera en Valkimia para el rango seleccionado.")
+    else:
+        fig = px.bar(
+            vk_result_counts,
+            x="cabeceras",
+            y="resultado",
+            orientation="h",
+            text="cabeceras",
+            title="Resultado VK por cabecera",
+        )
+        fig.update_layout(height=360, yaxis_title="", xaxis_title="Cabeceras")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(
+            vk_header_display.rename(
+                columns={
+                    "proveedor_label": "Proveedor",
+                    "sucursal_label": "Sucursal destino",
+                    "total_lineas": "Total líneas",
+                    "cant_aco": "ACO",
+                    "cant_pre": "PRE",
+                    "cant_rem": "REM",
+                    "cant_etr": "ETR",
+                    "cant_otro": "Otros",
+                    "resultado": "Resultado",
+                    "cerrable": "Cerrable",
+                }
+            )[
+                [
+                    "Proveedor",
+                    "Sucursal destino",
+                    "Total líneas",
+                    "ACO",
+                    "PRE",
+                    "REM",
+                    "ETR",
+                    "Otros",
+                    "Resultado",
+                    "Cerrable",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+st.divider()
+st.subheader("Control por proveedor")
+
+proveedor_label = st.selectbox("Proveedor", sorted(label_to_supplier.keys()))
 proveedor_sel = label_to_supplier[proveedor_label]
 
 current_snapshot = _load_current_snapshot(int(proveedor_sel))

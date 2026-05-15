@@ -200,6 +200,41 @@ WHERE COALESCE(h.requested_at, h.created_at, h.updated_at) >= :desde
 )
 
 
+SQL_VK_HEADER_STATUS = text(
+    """
+SELECT
+    LOWER(LTRIM(RTRIM(connexa_header_uuid))) AS connexa_header_uuid,
+    total_lineas,
+    cant_aco,
+    cant_pre,
+    cant_rem,
+    cant_etr,
+    cant_otro,
+    resultado,
+    cerrable
+FROM [data-sync].[repl].[V_CONNEXA_RETORNO_CABECERAS_VK]
+WHERE connexa_header_uuid IN ({placeholders});
+"""
+)
+
+
+SQL_VK_USER_TRANSF_RANGE = text(
+    r"""
+SELECT
+    INIFecReg,
+    LTRIM(RTRIM(INIUsuReg)) AS c_usuario,
+    CAST(INIDepId AS bigint) AS c_sucu_orig,
+    CAST(INIEntId AS bigint) AS c_sucu_dest,
+    CAST(INIIdSincro AS varchar(100)) AS u_id_sincro,
+    CAST(INIId AS bigint) AS ini_id,
+    LTRIM(RTRIM(INIEst)) AS ini_est
+FROM [DIARCO-VKMSQL\SQL2008R2].[VALKIMIA].[dbo].[IntNecIN]
+WHERE INIFecReg >= :desde
+  AND INIFecReg < DATEADD(day, 1, :hasta);
+"""
+)
+
+
 SQL_STOCK_BASE = text(
     """
 SELECT
@@ -845,6 +880,126 @@ WHERE connexa_detail_uuid IN ({placeholders});
     return out
 
 
+def load_vk_header_status(sql_engine: Engine, header_uuids: List[str], chunk_size: int = 300) -> pd.DataFrame:
+    ids = sorted({str(x).strip().lower() for x in header_uuids if str(x).strip()})
+    if not ids:
+        return pd.DataFrame(
+            columns=[
+                "connexa_header_uuid",
+                "total_lineas",
+                "cant_aco",
+                "cant_pre",
+                "cant_rem",
+                "cant_etr",
+                "cant_otro",
+                "resultado",
+                "cerrable",
+            ]
+        )
+
+    frames: List[pd.DataFrame] = []
+
+    for bloque in _chunks(ids, chunk_size):
+        placeholders = ", ".join([f":p{j}" for j in range(len(bloque))])
+        sql = text(SQL_VK_HEADER_STATUS.text.format(placeholders=placeholders))
+        params = {f"p{j}": bloque[j] for j in range(len(bloque))}
+        with sql_engine.connect() as conn:
+            df = pd.read_sql(sql, conn, params=params)
+        if not df.empty:
+            frames.append(df)
+
+    if not frames:
+        return pd.DataFrame(
+            columns=[
+                "connexa_header_uuid",
+                "total_lineas",
+                "cant_aco",
+                "cant_pre",
+                "cant_rem",
+                "cant_etr",
+                "cant_otro",
+                "resultado",
+                "cerrable",
+            ]
+        )
+
+    out = pd.concat(frames, ignore_index=True)
+    out["connexa_header_uuid"] = out["connexa_header_uuid"].astype(str).str.strip().str.lower()
+
+    for col in ("total_lineas", "cant_aco", "cant_pre", "cant_rem", "cant_etr", "cant_otro"):
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0).astype(int)
+
+    out["resultado"] = out["resultado"].fillna("").astype(str).str.strip()
+    out["cerrable"] = out["cerrable"].fillna(False).astype(bool)
+    return out
+
+
+def load_vk_user_transfer_range(sql_engine: Engine, desde: date, hasta: date) -> pd.DataFrame:
+    df = pd.read_sql(
+        SQL_VK_USER_TRANSF_RANGE,
+        sql_engine,
+        params={"desde": desde, "hasta": hasta},
+        parse_dates=["INIFecReg"],
+    )
+
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "f_alta",
+                "c_usuario",
+                "c_sucu_orig",
+                "c_sucu_dest",
+                "u_id_sincro",
+                "ini_id",
+                "ini_est",
+                "transfer_key",
+            ]
+        )
+
+    df = df.rename(columns={"INIFecReg": "f_alta"})
+    for col in ("c_usuario", "u_id_sincro", "ini_est"):
+        df[col] = df[col].fillna("").astype(str).str.strip()
+
+    for col in ("c_sucu_orig", "c_sucu_dest"):
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+    df["ini_id"] = pd.to_numeric(df["ini_id"], errors="coerce").astype("Int64")
+
+    df["c_usuario"] = df["c_usuario"].replace("", "SIN_USUARIO")
+    df["u_id_sincro_norm"] = df["u_id_sincro"].replace("", pd.NA)
+
+    fallback_key = (
+        df["f_alta"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        + "|"
+        + df["c_usuario"]
+        + "|"
+        + df["c_sucu_orig"].astype(str)
+        + "|"
+        + df["c_sucu_dest"].astype(str)
+        + "|"
+        + df["ini_id"].astype(str)
+    )
+    df["transfer_key"] = df["u_id_sincro_norm"].fillna(fallback_key)
+
+    df = (
+        df.sort_values(["f_alta", "c_usuario", "transfer_key"], ascending=[True, True, True])
+        .drop_duplicates(subset=["transfer_key"], keep="first")
+        .reset_index(drop=True)
+    )
+
+    return df[
+        [
+            "f_alta",
+            "c_usuario",
+            "c_sucu_orig",
+            "c_sucu_dest",
+            "u_id_sincro",
+            "ini_id",
+            "ini_est",
+            "transfer_key",
+        ]
+    ]
+
+
 def enrich_with_stock_and_snd(
     df_norm: pd.DataFrame,
     df_stock_base: pd.DataFrame,
@@ -1224,3 +1379,27 @@ def build_current_pending_control_snapshot(
     df_vk = load_vk_latest_status(sql_engine, df_pending["connexa_detail_uuid"].tolist())
     df_pending = merge_downstream_status(df_pending, df_staging, df_vk)
     return df_pending
+
+
+def build_history_control_snapshot(
+    connexa_engine: Engine,
+    pg_engine: Engine,
+    sql_engine: Engine,
+    desde: date,
+    hasta: date,
+) -> pd.DataFrame:
+    df_raw = load_connexa_range_raw(connexa_engine, desde, hasta)
+    if df_raw.empty:
+        return pd.DataFrame()
+
+    df_hist = normalize_transfer_df(df_raw)
+    df_product_map = load_product_map_for_candidates(pg_engine, df_hist)
+    df_hist = enrich_with_supplier(df_hist, df_product_map)
+
+    df_staging = load_staging_status(sql_engine, df_hist["connexa_detail_uuid"].tolist())
+    df_blocklist = load_transfer_blocklist(pg_engine, df_hist["connexa_detail_uuid"].tolist())
+    df_hist = merge_transfer_blocklist(df_hist, df_blocklist)
+    df_hist = mark_already_published(df_hist, df_staging)
+    df_vk = load_vk_latest_status(sql_engine, df_hist["connexa_detail_uuid"].tolist())
+    df_hist = merge_downstream_status(df_hist, df_staging, df_vk)
+    return df_hist
