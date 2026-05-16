@@ -295,16 +295,26 @@ def cargar_precarga_sqlserver(_engine: Engine, proposal: str) -> Tuple[pd.DataFr
 # UI Helpers
 # =========================
 
+def sumar_numerico(df: pd.DataFrame, *columnas: str) -> float:
+    for col in columnas:
+        if col in df.columns:
+            return pd.to_numeric(df[col], errors="coerce").fillna(0).sum()
+    return 0
+
+
 def kpi_triplet(df: pd.DataFrame, label_prefix: str):
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric(f"{label_prefix} • Total líneas", f"{len(df):,}")
     with c2:
-        total_units = pd.to_numeric(df.get("total_units"), errors="coerce").fillna(0).sum()
+        total_units = sumar_numerico(df, "total_units")
         st.metric(f"{label_prefix} • Unidades", f"{int(total_units):,}")
     with c3:
-        total_amount = pd.to_numeric(df.get("total_amount"), errors="coerce").fillna(0).sum()
+        total_amount = sumar_numerico(df, "total_amount")
         st.metric(f"{label_prefix} • Importe", f"{round(float(total_amount),2):,}")
+    with c4:
+        total_bultos = sumar_numerico(df, "total_box")
+        st.metric(f"{label_prefix} • Bultos/Kilos", f"{int(total_bultos):,}")
 
 def normalizar_columnas_uuid(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -402,7 +412,7 @@ def main():
             .assign(q_bultos_kilos_diarco=pd.to_numeric(df_pre_pg["q_bultos_kilos_diarco"], errors="coerce").fillna(0))
             .groupby(["c_articulo", "c_sucu_empr"], as_index=False)["q_bultos_kilos_diarco"].sum()
             .sort_values(["c_articulo", "c_sucu_empr"]) 
-        )
+        ) # type: ignore
         c1, c2 = st.columns((2,1))
         with c1:
             st.subheader("Detalle consolidado por Artículo/Sucursal")
@@ -422,13 +432,21 @@ def main():
             if df_cur.empty:
                 st.warning("Sin registros en T080 para la propuesta (posible ya consolidada/transferida).")
             else:
-                st.dataframe(df_cur, width='stretch')
+                c1, c2 = st.columns((2, 1))
+                with c1:
+                    st.dataframe(df_cur, width='stretch')
+                with c2:
+                    st.metric("Total bultos/kilos en T080", f"{int(sumar_numerico(df_cur, 'q_bultos_kilos_diarco')):,}")
                 st.download_button("Descargar CSV - T080", data=df_cur.to_csv(index=False).encode("utf-8"), file_name=f"t080_precarga_{proposal}.csv", mime="text/csv")
         with tabs[1]:
             if df_hist.empty:
                 st.info("Sin registros en histórico para esta propuesta aún.")
             else:
-                st.dataframe(df_hist, width='stretch')
+                c1, c2 = st.columns((2, 1))
+                with c1:
+                    st.dataframe(df_hist, width='stretch')
+                with c2:
+                    st.metric("Total bultos/kilos en T874", f"{int(sumar_numerico(df_hist, 'q_bultos_kilos_diarco')):,}")
                 st.download_button("Descargar CSV - T874", data=df_hist.to_csv(index=False).encode("utf-8"), file_name=f"t874_hist_{proposal}.csv", mime="text/csv")
         with tabs[2]:
             df_oc = pd.concat([df_cur, df_hist], ignore_index=True)
