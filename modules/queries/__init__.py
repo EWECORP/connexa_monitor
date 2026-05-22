@@ -50,6 +50,7 @@ from .proveedores import (  # type: ignore[F401]
     get_proporcion_proveedores_ci_mensual,
     get_detalle_proveedores_ci,
     get_ranking_proveedores_desde_ci,
+    get_ranking_proveedores_cobertura_sgm,
     get_resumen_proveedor_connexa_vs_sgm,
     get_ventas_proveedor,
 )
@@ -113,6 +114,7 @@ __all__ = [
     "get_proporcion_proveedores_ci_mensual",
     "get_detalle_proveedores_ci",
     "get_ranking_proveedores_desde_ci",
+    "get_ranking_proveedores_cobertura_sgm",
     # efectividad
     "get_estados_propuestas",
     "get_detalle_forecast_propuesta",

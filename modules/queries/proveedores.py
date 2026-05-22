@@ -235,6 +235,58 @@ LEFT JOIN [repl].[T020_PROVEEDOR] P ON base.c_proveedor = P.c_proveedor
 GROUP BY base.c_proveedor, P.n_proveedor;
 """)
 
+SQL_SGM_PROVEEDOR_COBERTURA = text("""
+WITH cabe AS (
+  SELECT
+    TRY_CONVERT(date, C.F_ALTA_SIST) AS f_alta_date,
+    C.C_PROVEEDOR AS c_proveedor,
+    P.N_PROVEEDOR AS n_proveedor,
+    CAST(C.U_PREFIJO_OC AS varchar(32)) AS u_prefijo_oc,
+    CAST(C.U_SUFIJO_OC  AS varchar(32)) AS u_sufijo_oc,
+    CONCAT(CAST(C.U_PREFIJO_OC AS varchar(32)), '-', CAST(C.U_SUFIJO_OC AS varchar(32))) AS oc_sgm
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE] C
+  LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T020_PROVEEDOR] P
+    ON C.C_PROVEEDOR = P.C_PROVEEDOR
+  WHERE TRY_CONVERT(date, C.F_ALTA_SIST) >= :desde
+    AND TRY_CONVERT(date, C.F_ALTA_SIST) <  DATEADD(day, 1, :hasta)
+    AND ISNULL(C.U_PREFIJO_OC, 0) <> 0
+    AND ISNULL(C.U_SUFIJO_OC, 0) <> 0
+),
+t874 AS (
+  SELECT DISTINCT
+    CAST(U_PREFIJO_OC AS varchar(32)) AS u_prefijo_oc,
+    CAST(U_SUFIJO_OC  AS varchar(32)) AS u_sufijo_oc
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
+  WHERE TRY_CONVERT(date, F_ALTA_SIST) >= :desde
+    AND TRY_CONVERT(date, F_ALTA_SIST) <  DATEADD(day, 1, :hasta)
+    AND ISNULL(U_PREFIJO_OC, 0) <> 0
+    AND ISNULL(U_SUFIJO_OC, 0) <> 0
+),
+marca AS (
+  SELECT
+    c.*,
+    CASE WHEN t.u_prefijo_oc IS NULL THEN 0 ELSE 1 END AS es_connexa
+  FROM cabe c
+  LEFT JOIN t874 t
+    ON t.u_prefijo_oc = c.u_prefijo_oc
+   AND t.u_sufijo_oc = c.u_sufijo_oc
+)
+SELECT
+  c_proveedor,
+  COALESCE(NULLIF(LTRIM(RTRIM(MAX(n_proveedor))), ''), CAST(c_proveedor AS varchar(32))) AS n_proveedor,
+  COUNT(DISTINCT oc_sgm) AS oc_sgm_total,
+  COUNT(DISTINCT CASE WHEN es_connexa = 1 THEN oc_sgm END) AS oc_sgm_desde_connexa,
+  COUNT(DISTINCT CASE WHEN es_connexa = 0 THEN oc_sgm END) AS oc_sgm_directas,
+  CAST(
+    1.0 * COUNT(DISTINCT CASE WHEN es_connexa = 1 THEN oc_sgm END)
+    / NULLIF(COUNT(DISTINCT oc_sgm), 0)
+    AS decimal(9,6)
+  ) AS pct_cobertura_connexa
+FROM marca
+GROUP BY c_proveedor
+ORDER BY oc_sgm_total DESC, oc_sgm_desde_connexa DESC;
+""")
+
 
 # ============================================================
 # SQL — Ventas por proveedor (PostgreSQL)
@@ -360,6 +412,52 @@ def get_ranking_proveedores_resumen(
         hasta=hasta,
         topn=topn,
     )
+
+
+def get_ranking_proveedores_cobertura_sgm(
+    sqlserver_engine: Engine,
+    desde: date,
+    hasta: date,
+    topn: Optional[int] = None,
+) -> pd.DataFrame:
+    """
+    Ranking por proveedor con OC SGM totales, OC SGM originadas en CONNEXA
+    y cobertura CONNEXA sobre el total SGM.
+    """
+    if sqlserver_engine is None:
+        return pd.DataFrame()
+
+    params = {"desde": desde, "hasta": hasta}
+    with sqlserver_engine.connect() as con:
+        df = pd.read_sql(SQL_SGM_PROVEEDOR_COBERTURA, con, params=params)
+
+    if df.empty:
+        return df
+
+    if "c_proveedor" in df.columns:
+        df["c_proveedor"] = pd.to_numeric(df["c_proveedor"], errors="coerce").astype("Int64")
+
+    for col in ("oc_sgm_total", "oc_sgm_desde_connexa", "oc_sgm_directas"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("int64")
+
+    if "pct_cobertura_connexa" in df.columns:
+        df["pct_cobertura_connexa"] = pd.to_numeric(
+            df["pct_cobertura_connexa"], errors="coerce"
+        ).fillna(0.0)
+
+    df["proveedor_label"] = df.apply(
+        lambda r: f"{str(r.get('n_proveedor', '')).strip()} ({int(r['c_proveedor'])})"
+        if pd.notna(r.get("c_proveedor")) and str(r.get("n_proveedor", "")).strip()
+        else str(r.get("c_proveedor", "")),
+        axis=1,
+    )
+
+    df = df.sort_values(["oc_sgm_total", "oc_sgm_desde_connexa"], ascending=[False, False])
+    if topn is not None:
+        df = df.head(topn)
+
+    return df
 
 
 # ============================================================

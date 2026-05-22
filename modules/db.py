@@ -1,6 +1,7 @@
 # db.py
 import os
 from functools import lru_cache
+from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 # Para SQL Server vía pyodbc/ODBC Driver 18
 import urllib.parse
@@ -12,15 +13,34 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-dotenv_path = find_dotenv()
-print(f"Usando archivo dotenv en: {dotenv_path}")
+
+def _load_project_env() -> str:
+    """
+    Carga variables desde ETL_ENV_PATH si está definido; si no, usa el .env
+    del proyecto connexa_monitor. Esto evita depender del drive/directorio
+    desde donde se inició Streamlit.
+    """
+    env_path = os.getenv("ETL_ENV_PATH")
+    if env_path and Path(env_path).exists():
+        load_dotenv(env_path, override=True)
+        return env_path
+
+    local_env = Path(__file__).resolve().parents[1] / ".env"
+    if local_env.exists():
+        load_dotenv(local_env, override=True)
+        return str(local_env)
+
+    found_env = find_dotenv()
+    if found_env:
+        load_dotenv(found_env, override=True)
+        return found_env
+
+    load_dotenv()
+    return ""
 
 
-load_dotenv()
-print (os.getenv("PG_HOST","no-pg-host"))
-print (os.getenv("SQL_SERVER","no-SQL-host"))
-print(os.getenv("PGP_HOST","no-pgp-host")   )
-print(os.getenv("PGP_DB","no-pgp-db")   )
+dotenv_path = _load_project_env()
+print(f"Usando archivo dotenv en: {dotenv_path or 'variables de entorno del sistema'}")
 
 @lru_cache(maxsize=1)
 def get_pg_engine():

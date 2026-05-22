@@ -10,6 +10,7 @@ from datetime import date
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from sqlalchemy import text
 
 from modules.ui import render_header, make_date_filters
 from modules.db import get_pg_engine, get_sqlserver_engine
@@ -70,6 +71,98 @@ def _normalize_proveedor(df: pd.DataFrame, col: str = "c_proveedor") -> pd.DataF
     return df
 
 
+SQL_SGM_PROVEEDOR_COBERTURA = text("""
+WITH cabe AS (
+  SELECT
+    TRY_CONVERT(date, C.F_ALTA_SIST) AS f_alta_date,
+    C.C_PROVEEDOR AS c_proveedor,
+    P.N_PROVEEDOR AS n_proveedor,
+    CAST(C.U_PREFIJO_OC AS varchar(32)) AS u_prefijo_oc,
+    CAST(C.U_SUFIJO_OC  AS varchar(32)) AS u_sufijo_oc,
+    CONCAT(CAST(C.U_PREFIJO_OC AS varchar(32)), '-', CAST(C.U_SUFIJO_OC AS varchar(32))) AS oc_sgm
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE] C
+  LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T020_PROVEEDOR] P
+    ON C.C_PROVEEDOR = P.C_PROVEEDOR
+  WHERE TRY_CONVERT(date, C.F_ALTA_SIST) >= :desde
+    AND TRY_CONVERT(date, C.F_ALTA_SIST) <  DATEADD(day, 1, :hasta)
+    AND ISNULL(C.U_PREFIJO_OC, 0) <> 0
+    AND ISNULL(C.U_SUFIJO_OC, 0) <> 0
+),
+t874 AS (
+  SELECT DISTINCT
+    CAST(U_PREFIJO_OC AS varchar(32)) AS u_prefijo_oc,
+    CAST(U_SUFIJO_OC  AS varchar(32)) AS u_sufijo_oc
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
+  WHERE TRY_CONVERT(date, F_ALTA_SIST) >= :desde
+    AND TRY_CONVERT(date, F_ALTA_SIST) <  DATEADD(day, 1, :hasta)
+    AND ISNULL(U_PREFIJO_OC, 0) <> 0
+    AND ISNULL(U_SUFIJO_OC, 0) <> 0
+),
+marca AS (
+  SELECT
+    c.*,
+    CASE WHEN t.u_prefijo_oc IS NULL THEN 0 ELSE 1 END AS es_connexa
+  FROM cabe c
+  LEFT JOIN t874 t
+    ON t.u_prefijo_oc = c.u_prefijo_oc
+   AND t.u_sufijo_oc = c.u_sufijo_oc
+)
+SELECT
+  c_proveedor,
+  COALESCE(NULLIF(LTRIM(RTRIM(MAX(n_proveedor))), ''), CAST(c_proveedor AS varchar(32))) AS n_proveedor,
+  COUNT(DISTINCT oc_sgm) AS oc_sgm_total,
+  COUNT(DISTINCT CASE WHEN es_connexa = 1 THEN oc_sgm END) AS oc_sgm_desde_connexa,
+  COUNT(DISTINCT CASE WHEN es_connexa = 0 THEN oc_sgm END) AS oc_sgm_directas,
+  CAST(
+    1.0 * COUNT(DISTINCT CASE WHEN es_connexa = 1 THEN oc_sgm END)
+    / NULLIF(COUNT(DISTINCT oc_sgm), 0)
+    AS decimal(9,6)
+  ) AS pct_cobertura_connexa
+FROM marca
+GROUP BY c_proveedor
+ORDER BY oc_sgm_total DESC, oc_sgm_desde_connexa DESC;
+""")
+
+
+def get_ranking_proveedores_cobertura_sgm(sqlserver_engine, desde: date, hasta: date, topn: int = 30) -> pd.DataFrame:
+    if sqlserver_engine is None:
+        return pd.DataFrame()
+
+    with sqlserver_engine.connect() as con:
+        df = pd.read_sql(
+            SQL_SGM_PROVEEDOR_COBERTURA,
+            con,
+            params={"desde": desde, "hasta": hasta},
+        )
+
+    if df.empty:
+        return df
+
+    if "c_proveedor" in df.columns:
+        df["c_proveedor"] = pd.to_numeric(df["c_proveedor"], errors="coerce").astype("Int64")
+
+    for col in ("oc_sgm_total", "oc_sgm_desde_connexa", "oc_sgm_directas"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("int64")
+
+    if "pct_cobertura_connexa" in df.columns:
+        df["pct_cobertura_connexa"] = pd.to_numeric(
+            df["pct_cobertura_connexa"], errors="coerce"
+        ).fillna(0.0)
+
+    df["proveedor_label"] = df.apply(
+        lambda r: f"{str(r.get('n_proveedor', '')).strip()} ({int(r['c_proveedor'])})"
+        if pd.notna(r.get("c_proveedor")) and str(r.get("n_proveedor", "")).strip()
+        else str(r.get("c_proveedor", "")),
+        axis=1,
+    )
+
+    return df.sort_values(
+        ["oc_sgm_total", "oc_sgm_desde_connexa"],
+        ascending=[False, False],
+    ).head(topn)
+
+
 @st.cache_data(ttl=ttl)
 def load_proveedores(desde: date, hasta: date):
     """
@@ -123,6 +216,12 @@ def _fetch_ranking_proveedores_ci(desde: date, hasta: date, topn: int = 10) -> p
     if eng_sgm is None:
         return pd.DataFrame()
     return get_ranking_proveedores_resumen(eng_sgm, desde, hasta, topn=topn)
+
+@st.cache_data(ttl=ttl, show_spinner=False)
+def _fetch_ranking_proveedores_cobertura(desde: date, hasta: date, topn: int = 30) -> pd.DataFrame:
+    if eng_sgm is None:
+        return pd.DataFrame()
+    return get_ranking_proveedores_cobertura_sgm(eng_sgm, desde, hasta, topn=topn)
 
 # =======================================================
 # 2. Carga y preparación de datos
@@ -316,6 +415,79 @@ with tab1:
 with tab2:
     st.subheader("Ranking de proveedores (volumen y adopción)")
 
+    st.markdown("### Cobertura CONNeXA sobre OC SGM por proveedor")
+    df_cov = _fetch_ranking_proveedores_cobertura(desde, hasta, topn=30)
+
+    if df_cov.empty:
+        st.info("Sin datos de OC SGM por proveedor para el rango seleccionado.")
+    else:
+        df_cov_plot = df_cov.sort_values("oc_sgm_total", ascending=False).head(20).copy()
+        df_cov_plot = df_cov_plot.sort_values("oc_sgm_total", ascending=True)
+
+        tot_oc_sgm = int(_safe_sum(df_cov, "oc_sgm_total"))
+        tot_oc_connexa = int(_safe_sum(df_cov, "oc_sgm_desde_connexa"))
+        pct_total = (tot_oc_connexa / tot_oc_sgm * 100.0) if tot_oc_sgm else 0.0
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("OC SGM total", f"{tot_oc_sgm:,.0f}")
+        c2.metric("OC desde CONNeXA", f"{tot_oc_connexa:,.0f}")
+        c3.metric("Cobertura CONNeXA", f"{pct_total:,.1f} %")
+
+        fig_cov = px.bar(
+            df_cov_plot,
+            x=["oc_sgm_desde_connexa", "oc_sgm_directas"],
+            y="proveedor_label",
+            orientation="h",
+            title="Top 20 proveedores por OC SGM: CONNeXA vs SGM directo",
+            text_auto=True,
+        )
+        fig_cov.update_layout(
+            xaxis_title="Cantidad de OC SGM",
+            yaxis_title="Proveedor",
+            legend_title_text="Origen",
+        )
+        fig_cov.for_each_trace(
+            lambda t: t.update(
+                name={
+                    "oc_sgm_desde_connexa": "OC desde CONNeXA",
+                    "oc_sgm_directas": "OC SGM directas",
+                }.get(t.name, t.name)
+            )
+        )
+        st.plotly_chart(fig_cov, use_container_width=True, key="tab2_cov_ranking")
+
+        df_cov_table = df_cov.copy()
+        df_cov_table["Cobertura CONNeXA"] = (
+            pd.to_numeric(df_cov_table["pct_cobertura_connexa"], errors="coerce")
+            .fillna(0.0)
+            .mul(100.0)
+            .map(lambda v: f"{v:,.1f} %")
+        )
+        df_cov_table = df_cov_table.rename(
+            columns={
+                "c_proveedor": "Código proveedor",
+                "n_proveedor": "Proveedor",
+                "oc_sgm_total": "OC SGM total",
+                "oc_sgm_desde_connexa": "OC desde CONNeXA",
+                "oc_sgm_directas": "OC SGM directas",
+            }
+        )
+        st.dataframe(
+            df_cov_table[
+                [
+                    "Código proveedor",
+                    "Proveedor",
+                    "OC SGM total",
+                    "OC desde CONNeXA",
+                    "OC SGM directas",
+                    "Cobertura CONNeXA",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.markdown("---")
     st.markdown("### Top proveedores por bultos desde Connexa (PostgreSQL)")
     df_rk_pg = _fetch_ranking_proveedores_connexa(desde, hasta, topn=20)
 

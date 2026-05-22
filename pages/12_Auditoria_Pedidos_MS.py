@@ -13,10 +13,13 @@ Entradas
 1) Postgres (connexa_platform):
    - supply_planning.view_spl_supply_purchase_proposal_supplier_site
 
-2) Postgres (diarco_data):
+2) Postgres (connexa_platform):
+   - supply_planning.spl_purchase_proposal_consolidation
+
+3) Postgres (diarco_data):
    - public.t080_oc_precarga_connexa
 
-3) SQL Server (SGM):
+4) SQL Server (SGM):
    - [DIARCOP001].[DiarcoP].[dbo].[T080_OC_PRECARGA_KIKKER]
    - [DIARCOP001].[DiarcoP].[dbo].[T874_OC_PRECARGA_KIKKER_HIST]
 
@@ -176,6 +179,24 @@ SELECT c_proveedor, c_articulo, c_sucu_empr, q_bultos_kilos_diarco, f_alta_sist,
 FROM public.t080_oc_precarga_connexa
 WHERE c_compra_connexa = :proposal_number
 """
+
+# Consulta para auditar la consolidación y descuento de stock CD en Connexa
+SQL_CONSOLIDACION_CD = """
+SELECT id,
+       purchase_proposal_id,
+       purchase_request,
+       supplier_code,
+       article_code,
+       product_name,
+       cod_cd,
+       initial_purchase_request,
+       stock_cd,
+       adjustment,
+       purchase_request AS final_purchase_request
+FROM supply_planning.spl_purchase_proposal_consolidation
+WHERE purchase_proposal_id::uuid = CAST(:proposal_id AS uuid)
+ORDER BY supplier_code, article_code, cod_cd
+"""
 # Consulta para leer pre‑carga desde SQL Server (T080 y T874) INPUT SGM
 # Sobre BASE SQK Server (data-sync.dbo)
 SQL_PRECarga_SQL = """
@@ -260,6 +281,12 @@ def cargar_precarga_pg(_engine: Engine, proposal: str) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def cargar_consolidacion_cd(_engine: Engine, proposal_id: str) -> pd.DataFrame:
+    with _engine.connect() as conn:
+        return pd.read_sql(text(SQL_CONSOLIDACION_CD), conn, params={"proposal_id": proposal_id})
+
+
+@st.cache_data(show_spinner=False)
 def cargar_precarga_sqlserver(_engine: Engine, proposal: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Lee T080 (corriente) y T874 (histórico) desde SQL Server.
@@ -321,7 +348,7 @@ def normalizar_columnas_uuid(df: pd.DataFrame) -> pd.DataFrame:
     Convierte a string las columnas que contienen UUIDs para que sean compatibles con PyArrow/Streamlit.
     """
     # ajustar la lista a los nombres reales
-    uuid_cols = ["proposal_id", "proposal_detail_id", "id"]
+    uuid_cols = ["proposal_id", "proposal_detail_id", "purchase_proposal_id", "id"]
 
     for col in uuid_cols:
         if col in df.columns:
@@ -401,8 +428,46 @@ def main():
         st.dataframe(df_view, width='stretch')
         st.download_button("Descargar CSV - Vista Connexa", data=df_view.to_csv(index=False).encode("utf-8"), file_name=f"connexa_view_{supplier}_{proposal}.csv", mime="text/csv")
 
-    # 3) Precarga en diarco_data (consolidación por ARTÍCULO / SUCURSAL)
-    st.header("3) Pre‑carga consolidada (Postgres diarco_data)")
+    # 3) Consolidación y descuento de stock CD en Connexa
+    st.header("3) Consolidación y descuento de stock CD (Connexa)")
+    proposal_id = None
+    if not df_view.empty and "proposal_id" in df_view.columns:
+        proposal_id = str(df_view["proposal_id"].dropna().iloc[0]) if not df_view["proposal_id"].dropna().empty else None
+
+    df_consolidacion_cd = pd.DataFrame()
+    if not proposal_id:
+        st.warning("No se pudo identificar el proposal_id UUID para consultar la consolidación CD.")
+    else:
+        df_consolidacion_cd = cargar_consolidacion_cd(eng_connexa, proposal_id)
+        if df_consolidacion_cd.empty:
+            st.warning("No hay registros de consolidación CD para esta propuesta.")
+        else:
+            df_consolidacion_cd = normalizar_columnas_uuid(df_consolidacion_cd)
+            numeric_cols = ["initial_purchase_request", "stock_cd", "adjustment", "final_purchase_request"]
+            for col in numeric_cols:
+                if col in df_consolidacion_cd.columns:
+                    df_consolidacion_cd[col] = pd.to_numeric(df_consolidacion_cd[col], errors="coerce").fillna(0)
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("Líneas consolidadas", f"{len(df_consolidacion_cd):,}")
+            with c2:
+                st.metric("Solicitud inicial", f"{int(sumar_numerico(df_consolidacion_cd, 'initial_purchase_request')):,}")
+            with c3:
+                st.metric("Stock CD descontado", f"{int(sumar_numerico(df_consolidacion_cd, 'stock_cd')):,}")
+            with c4:
+                st.metric("Solicitud final", f"{int(sumar_numerico(df_consolidacion_cd, 'final_purchase_request')):,}")
+
+            st.dataframe(df_consolidacion_cd, width='stretch')
+            st.download_button(
+                "Descargar CSV - Consolidación CD",
+                data=df_consolidacion_cd.to_csv(index=False).encode("utf-8"),
+                file_name=f"consolidacion_cd_{proposal_id}.csv",
+                mime="text/csv",
+            )
+
+    # 4) Precarga en diarco_data (consolidación por ARTÍCULO / SUCURSAL)
+    st.header("4) Pre‑carga consolidada (Postgres diarco_data)")
     df_pre_pg = cargar_precarga_pg(eng_diarco, proposal)
     if df_pre_pg.empty:
         st.warning("No hay pre‑carga registrada en diarco_data para esta propuesta.")
@@ -421,8 +486,8 @@ def main():
             st.metric("Total bultos/kilos (precarga)", f"{int(df_consol['q_bultos_kilos_diarco'].sum()):,}")
         st.download_button("Descargar CSV - Precarga consolidada", data=df_consol.to_csv(index=False).encode("utf-8"), file_name=f"precarga_consolidada_{proposal}.csv", mime="text/csv")
 
-    # 4) Estado en SGM (SQL Server): corriente e histórico
-    st.header("4) Estado en SGM (SQL Server)")
+    # 5) Estado en SGM (SQL Server): corriente e histórico
+    st.header("5) Estado en SGM (SQL Server)")
     if not ssql_ok:
         st.info("Conexión a SQL Server no disponible. Esta sección es opcional y se mostrará cuando el servidor esté accesible.")
     else:
@@ -462,11 +527,13 @@ def main():
                 st.dataframe(df_oc_valid, width='stretch')
                 st.download_button("Descargar CSV - OCs generadas", data=df_oc_valid.to_csv(index=False).encode("utf-8"), file_name=f"ocs_generadas_{proposal}.csv", mime="text/csv")
 
-    # 5) Estado global / semáforos
-    st.header("5) Estado global")
+    # 6) Estado global / semáforos
+    st.header("6) Estado global")
     estado = []
     if not df_view.empty:
         estado.append("🟩 Propuesta generada en Connexa")
+    if not df_consolidacion_cd.empty:
+        estado.append("🟩 Consolidación y descuento stock CD")
     if not df_pre_pg.empty:
         estado.append("🟩 Consolidación precarga (diarco_data)")
     if ssql_ok:
