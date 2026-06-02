@@ -10,12 +10,9 @@ import streamlit as st
 from modules.db import get_connexa_engine, get_diarco_engine, get_sqlserver_engine
 from modules.ui import render_header
 from modules.queries.transfer_monitor import (
-    build_current_pending_control_snapshot,
     build_current_pending_snapshot,
-    build_history_control_snapshot,
     build_history_snapshot,
     load_supplier_dim,
-    load_vk_user_transfer_range,
     load_vk_header_status,
 )
 
@@ -350,18 +347,6 @@ def _load_current_snapshot(proveedor: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=TTL, show_spinner=True)
-def _load_current_control_snapshot() -> pd.DataFrame:
-    connexa_engine = get_connexa_engine()
-    pg_engine = get_diarco_engine()
-    sql_engine = get_sqlserver_engine()
-
-    if connexa_engine is None or pg_engine is None or sql_engine is None:
-        return pd.DataFrame()
-
-    return build_current_pending_control_snapshot(connexa_engine, pg_engine, sql_engine)
-
-
-@st.cache_data(ttl=TTL, show_spinner=True)
 def _load_history_snapshot(proveedor: int, desde: date, hasta: date) -> pd.DataFrame:
     connexa_engine = get_connexa_engine()
     pg_engine = get_diarco_engine()
@@ -373,18 +358,6 @@ def _load_history_snapshot(proveedor: int, desde: date, hasta: date) -> pd.DataF
     return build_history_snapshot(connexa_engine, pg_engine, sql_engine, desde, hasta, proveedor)
 
 
-@st.cache_data(ttl=TTL, show_spinner=True)
-def _load_history_control_snapshot(desde: date, hasta: date) -> pd.DataFrame:
-    connexa_engine = get_connexa_engine()
-    pg_engine = get_diarco_engine()
-    sql_engine = get_sqlserver_engine()
-
-    if connexa_engine is None or pg_engine is None or sql_engine is None:
-        return pd.DataFrame()
-
-    return build_history_control_snapshot(connexa_engine, pg_engine, sql_engine, desde, hasta)
-
-
 @st.cache_data(ttl=TTL, show_spinner=False)
 def _load_vk_header_summary(header_uuids: tuple[str, ...]) -> pd.DataFrame:
     sql_engine = get_sqlserver_engine()
@@ -392,15 +365,6 @@ def _load_vk_header_summary(header_uuids: tuple[str, ...]) -> pd.DataFrame:
         return pd.DataFrame()
 
     return load_vk_header_status(sql_engine, list(header_uuids))
-
-
-@st.cache_data(ttl=TTL, show_spinner=False)
-def _load_vk_user_transfer_summary(desde: date, hasta: date) -> pd.DataFrame:
-    sql_engine = get_sqlserver_engine()
-    if sql_engine is None:
-        return pd.DataFrame()
-
-    return load_vk_user_transfer_range(sql_engine, desde, hasta)
 
 
 st.markdown(
@@ -434,8 +398,26 @@ with f1:
 with f2:
     hasta = st.date_input("Hasta", value=date.today())
 
-global_current = _load_current_control_snapshot()
-global_history = _load_history_control_snapshot(desde, hasta)
+st.divider()
+st.subheader("Control por proveedor")
+
+provider_placeholder = "Seleccione un proveedor..."
+proveedor_label = st.selectbox("Proveedor", [provider_placeholder] + sorted(label_to_supplier.keys()))
+if proveedor_label == provider_placeholder:
+    st.info("Seleccione un proveedor para cargar el pipeline, stock y trazas de SGM / Valkimia.")
+    st.stop()
+
+proveedor_sel = label_to_supplier[proveedor_label]
+
+current_snapshot = _load_current_snapshot(int(proveedor_sel))
+history_snapshot = _load_history_snapshot(int(proveedor_sel), desde, hasta)
+
+if current_snapshot.empty and history_snapshot.empty:
+    st.warning("No se pudieron cargar datos del circuito de transferencias con las conexiones actuales.")
+    st.stop()
+
+global_current = current_snapshot.copy()
+global_history = history_snapshot.copy()
 
 header_ids = tuple(
     sorted(
@@ -448,15 +430,13 @@ header_ids = tuple(
 )
 vk_header_summary = _load_vk_header_summary(header_ids)
 vk_header_display = _build_vk_header_display(vk_header_summary, global_history)
-vk_user_transfers = _load_vk_user_transfer_summary(desde, hasta)
-weekly_user_summary = _build_weekly_user_transfer_summary(vk_user_transfers, desde, hasta)
 
 pipeline_counts = _build_pipeline_stage_counts(global_history)
 vk_result_counts = _build_vk_result_counts(vk_header_summary)
 
-st.subheader("Resumen general del pipeline")
+st.subheader("Resumen del pipeline del proveedor")
 st.caption(
-    f"Rango analizado: {desde.strftime('%d/%m/%Y')} al {hasta.strftime('%d/%m/%Y')}."
+    f"Proveedor: {proveedor_label}. Rango analizado: {desde.strftime('%d/%m/%Y')} al {hasta.strftime('%d/%m/%Y')}."
 )
 st.info(
     "Este bloque resume transferencias originadas en Connexa y su traza aguas abajo "
@@ -476,31 +456,6 @@ c1.metric("Pendientes actuales en PRECARGA", f"{_distinct_count(global_current, 
 c2.metric("Líneas actuales en PRECARGA", f"{len(global_current):,}")
 c3.metric("Líneas actuales ya en DMZ", f"{_count_mask(global_current, _bool_series(global_current, 'ya_publicado')):,}")
 c4.metric("Líneas actuales con traza VK", f"{_count_mask(global_current, _upper_text_series(global_current, 'vk_INIEst').ne('')):,}")
-
-st.markdown("**Transferencias registradas en Valkimia por usuario**")
-u1, u2, u3, u4 = st.columns(4)
-u1.metric("Transferencias en período", f"{len(vk_user_transfers):,}")
-u2.metric(
-    "Generadas por Connexa",
-    f"{_count_mask(vk_user_transfers, _upper_text_series(vk_user_transfers, 'c_usuario').eq('CONNEXA')):,}",
-)
-u3.metric(
-    "Generadas por usuarios",
-    f"{_count_mask(vk_user_transfers, _upper_text_series(vk_user_transfers, 'c_usuario').ne('CONNEXA')):,}",
-)
-u4.metric(
-    "Usuarios manuales activos",
-    f"{_distinct_count(vk_user_transfers[~_upper_text_series(vk_user_transfers, 'c_usuario').eq('CONNEXA')], 'c_usuario'):,}",
-)
-
-if weekly_user_summary.empty:
-    st.info("No se encontraron transferencias registradas en Valkimia por usuario en el período seleccionado.")
-else:
-    st.dataframe(
-        weekly_user_summary,
-        use_container_width=True,
-        hide_index=True,
-    )
 
 sum1, sum2 = st.columns(2)
 with sum1:
@@ -570,19 +525,6 @@ with sum2:
             use_container_width=True,
             hide_index=True,
         )
-
-st.divider()
-st.subheader("Control por proveedor")
-
-proveedor_label = st.selectbox("Proveedor", sorted(label_to_supplier.keys()))
-proveedor_sel = label_to_supplier[proveedor_label]
-
-current_snapshot = _load_current_snapshot(int(proveedor_sel))
-history_snapshot = _load_history_snapshot(int(proveedor_sel), desde, hasta)
-
-if current_snapshot.empty and history_snapshot.empty:
-    st.warning("No se pudieron cargar datos del circuito de transferencias con las conexiones actuales.")
-    st.stop()
 
 df_current = current_snapshot.copy()
 df_history = history_snapshot.copy()
