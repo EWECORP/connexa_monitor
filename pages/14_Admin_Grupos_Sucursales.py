@@ -24,7 +24,7 @@ TTL = int(os.getenv("CACHE_TTL_SECONDS", "300"))
 # ============================================================
 Q_GROUPS = text("""
 SELECT g.id, g.name
-FROM supply_planning.spl_group g
+FROM supply_planning.spl_site_group g
 ORDER BY g.name;
 """)
 
@@ -42,48 +42,48 @@ ORDER BY s.code, s.name;
 
 Q_GROUP_SITES = text("""
 SELECT
-    sg.group_id,
+    sg.site_group_id AS group_id,
     sg.site_id
-FROM supply_planning.spl_site_group sg;
+FROM supply_planning.spl_site_group_relation sg;
 """)
 
 Q_CREATE_GROUP = text("""
-INSERT INTO supply_planning.spl_group (name)
+INSERT INTO supply_planning.spl_site_group (name)
 VALUES (:name)
 RETURNING id;
 """)
 
 Q_RENAME_GROUP = text("""
-UPDATE supply_planning.spl_group
+UPDATE supply_planning.spl_site_group
 SET name = :name
 WHERE id = :group_id;
 """)
 
 Q_DELETE_GROUP_REL = text("""
-DELETE FROM supply_planning.spl_site_group
-WHERE group_id = :group_id;
+DELETE FROM supply_planning.spl_site_group_relation
+WHERE site_group_id = :group_id;
 """)
 
 Q_DELETE_GROUP = text("""
-DELETE FROM supply_planning.spl_group
+DELETE FROM supply_planning.spl_site_group
 WHERE id = :group_id;
 """)
 
 Q_ADD_SITES = text("""
-INSERT INTO supply_planning.spl_site_group (id, site_id, group_id)
+INSERT INTO supply_planning.spl_site_group_relation (id, site_id, site_group_id)
 VALUES (gen_random_uuid(), :site_id, :group_id)
 ON CONFLICT DO NOTHING;
 """)
 
 Q_REMOVE_SITES = text("""
-DELETE FROM supply_planning.spl_site_group
-WHERE group_id = :group_id
+DELETE FROM supply_planning.spl_site_group_relation
+WHERE site_group_id = :group_id
   AND site_id = :site_id;
 """)
 
 Q_DUP_CHECK = text("""
 SELECT LOWER(TRIM(name)) AS name_norm, COUNT(*) AS qty
-FROM supply_planning.spl_group
+FROM supply_planning.spl_site_group
 GROUP BY LOWER(TRIM(name))
 HAVING COUNT(*) > 1;
 """)
@@ -475,4 +475,4 @@ else:
         mime="text/csv",
     )
 
-st.caption("Sugerencia técnica: definir una restricción única sobre (site_id, group_id) y una regla de unicidad lógica para el nombre del grupo.")
+st.caption("Sugerencia técnica: definir una restricción única sobre (site_id, site_group_id) y una regla de unicidad lógica para el nombre del grupo.")

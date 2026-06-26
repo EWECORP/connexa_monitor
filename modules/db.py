@@ -124,3 +124,32 @@ def get_sqlserver_engine() -> Engine:
     url = f"mssql+pyodbc:///?odbc_connect={params}"
 
     return create_engine(url, pool_pre_ping=True, fast_executemany=True)
+
+
+@st.cache_resource(show_spinner=False)
+def get_sqlserver_prod_engine() -> Engine:
+    """
+    Conexion SQL Server Produccion DIARCO.
+
+    Usar solo en utilidades que deban operar explicitamente sobre SQLP_*.
+    No reemplaza get_sqlserver_engine(), que sigue reservado para SQL_SERVER
+    y los informes existentes apuntados a DMZ.
+    """
+    import urllib.parse
+
+    host = os.getenv("SQLP_SERVER")
+    port = os.getenv("SQLP_PORT", "1433")
+    db   = os.getenv("SQLP_DATABASE")
+    user = os.getenv("SQLP_USER")
+    pw   = os.getenv("SQLP_PASSWORD")
+    driver = os.getenv("SQLP_DRIVER", "ODBC Driver 17 for SQL Server")
+
+    if not (host and db and user and pw):
+        return None # type: ignore
+
+    params = urllib.parse.quote_plus(
+        f"DRIVER={driver};SERVER={host},{port};DATABASE={db};UID={user};PWD={pw};Encrypt=yes;TrustServerCertificate=yes;"
+    )
+    url = f"mssql+pyodbc:///?odbc_connect={params}"
+
+    return create_engine(url, pool_pre_ping=True, fast_executemany=True)
