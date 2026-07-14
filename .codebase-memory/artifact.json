@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "54e35dd6483faa52a991df224f00cfd45a54b312",
+    "indexed_at": "2026-07-14T16:31:16Z",
+    "project": "connexa_monitor",
+    "nodes": 1211,
+    "edges": 5394,
+    "original_size": 3670016,
+    "compressed_size": 652057,
+    "compression_level": 9
+}
