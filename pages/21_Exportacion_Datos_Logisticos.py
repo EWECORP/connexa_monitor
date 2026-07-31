@@ -13,7 +13,6 @@ import streamlit as st
 
 from modules.db import get_connexa_engine, get_diarco_engine
 from modules.queries.datos_logisticos import (
-    PROVEEDORES_HABILITADOS,
     SQL_CATALOGO_FILTROS,
     SQL_CATALOGO_PROVEEDORES,
     SQL_GRUPOS_SUCURSALES,
@@ -39,21 +38,13 @@ TTL = int(os.getenv("CACHE_TTL_SECONDS", "300"))
 @st.cache_data(ttl=TTL, show_spinner=False)
 def cargar_catalogo_filtros() -> pd.DataFrame:
     with get_diarco_engine().connect() as con:
-        return pd.read_sql(
-            SQL_CATALOGO_FILTROS,
-            con,
-            params={"proveedores_habilitados": PROVEEDORES_HABILITADOS},
-        )
+        return pd.read_sql(SQL_CATALOGO_FILTROS, con)
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
 def cargar_catalogo_proveedores() -> pd.DataFrame:
     with get_diarco_engine().connect() as con:
-        return pd.read_sql(
-            SQL_CATALOGO_PROVEEDORES,
-            con,
-            params={"proveedores_habilitados": PROVEEDORES_HABILITADOS},
-        )
+        return pd.read_sql(SQL_CATALOGO_PROVEEDORES, con)
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
@@ -164,10 +155,38 @@ with col1:
         placeholder="Todos los compradores",
     )
 with col2:
+    todos_proveedores = st.checkbox(
+        "Seleccionar todos los proveedores",
+        value=False,
+        help="Incluye todos los proveedores con datos logisticos.",
+    )
+    limite_proveedores = st.number_input(
+        "Cantidad maxima de proveedores",
+        min_value=1,
+        max_value=max(len(proveedor_labels), 1),
+        value=min(50, max(len(proveedor_labels), 1)),
+        step=1,
+        disabled=todos_proveedores,
+        help="Ingrese cuantos proveedores desea poder seleccionar.",
+    )
+    if (
+        not todos_proveedores
+        and len(st.session_state.get("logistica_proveedores_ui", []))
+        > int(limite_proveedores)
+    ):
+        st.session_state["logistica_proveedores_ui"] = st.session_state[
+            "logistica_proveedores_ui"
+        ][: int(limite_proveedores)]
+        st.warning(
+            "La seleccion se redujo para respetar la nueva cantidad maxima."
+        )
     proveedores_elegidos = st.multiselect(
         "Proveedores",
         options=list(proveedor_labels),
-        placeholder="Todos los proveedores habilitados",
+        placeholder="Busque por codigo o nombre",
+        max_selections=None if todos_proveedores else int(limite_proveedores),
+        disabled=todos_proveedores,
+        key="logistica_proveedores_ui",
     )
 with col3:
     grupos_elegidos = st.multiselect(
@@ -178,7 +197,11 @@ with col3:
     )
 
 compradores_ids = tuple(sorted(comprador_labels[x] for x in compradores_elegidos))
-proveedores_ids = tuple(sorted(proveedor_labels[x] for x in proveedores_elegidos))
+proveedores_ids = (
+    ()
+    if todos_proveedores
+    else tuple(sorted(proveedor_labels[x] for x in proveedores_elegidos))
+)
 grupos_ids = {grupo_labels[x] for x in grupos_elegidos}
 sucursales_ids = tuple(
     sorted(
@@ -196,18 +219,24 @@ sucursales_ids = tuple(
 if grupos_elegidos and not sucursales_ids:
     st.warning("Los grupos seleccionados no tienen sucursales con codigo numerico asociado.")
 
+proveedores_invalidos = not todos_proveedores and not proveedores_ids
+if proveedores_invalidos:
+    st.info("Seleccione al menos un proveedor o active la opcion para incluirlos a todos.")
+
 col_accion, col_info = st.columns([1, 3])
 with col_accion:
     ejecutar = st.button(
         "Generar reporte",
         type="primary",
         use_container_width=True,
-        disabled=bool(grupos_elegidos and not sucursales_ids),
+        disabled=bool(
+            proveedores_invalidos or (grupos_elegidos and not sucursales_ids)
+        ),
     )
 with col_info:
     st.caption(
-        f"Universo configurado: {len(PROVEEDORES_HABILITADOS)} proveedores. "
-        "Deje un filtro vacio para incluir todos sus valores."
+        f"Universo disponible: {len(proveedor_labels)} proveedores. "
+        "Los filtros de compradores y grupos vacios incluyen todos sus valores."
     )
 
 if ejecutar:
