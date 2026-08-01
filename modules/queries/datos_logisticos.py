@@ -18,8 +18,6 @@ SELECT DISTINCT
     COALESCE(c.n_comprador, p.cod_comprador::text) AS n_comprador
 FROM src.base_productos_vigentes p
 LEFT JOIN compradores c ON c.c_comprador = p.cod_comprador
-WHERE p.abastecimiento = 3
-  AND p.c_sucu_empr >= 300
 ORDER BY n_comprador, cod_comprador;
 """)
 
@@ -30,8 +28,6 @@ SELECT DISTINCT
     COALESCE(NULLIF(TRIM(pr.n_proveedor), ''), p.c_proveedor_primario::text) AS n_proveedor
 FROM src.base_productos_vigentes p
 LEFT JOIN src.t020_proveedor pr ON pr.c_proveedor = p.c_proveedor_primario
-WHERE p.abastecimiento = 3
-  AND p.c_sucu_empr >= 300
 ORDER BY n_proveedor, c_proveedor;
 """)
 
@@ -80,11 +76,19 @@ SELECT
     p.q_factor_compra,
     p.full_capacity_pallet,
     p.number_of_layers,
-    p.number_of_boxes_per_layer
+    p.number_of_boxes_per_layer,
+    bs.q_dias_stock,
+    bs.q_dias_sobre_stock,
+    bs.dias_preparacion,
+    bs.importe_minimo,
+    bs.bultos_minimo
 FROM src.base_productos_vigentes p
 JOIN src.t050_articulos a ON p.c_articulo = a.c_articulo
-WHERE p.abastecimiento = 3
-  AND p.c_sucu_empr >= 300
+LEFT JOIN src.base_stock_sucursal bs
+  ON bs.codigo_articulo = p.c_articulo
+ AND bs.codigo_sucursal = p.c_sucu_empr
+ AND bs.codigo_proveedor = p.c_proveedor_primario
+WHERE 1 = 1
 {filtros}
 ORDER BY 1, 2, 3, 4;
 """
@@ -94,10 +98,11 @@ def construir_consulta_datos_logisticos(
     compradores: tuple[int, ...],
     proveedores: tuple[int, ...],
     sucursales: tuple[int, ...],
+    abastecimiento: int | None,
 ):
     """Construye una consulta parametrizada para los filtros opcionales."""
     condiciones: list[str] = []
-    params: dict[str, tuple[int, ...]] = {}
+    params: dict[str, object] = {}
     expanding: list[str] = []
 
     if compradores:
@@ -108,6 +113,9 @@ def construir_consulta_datos_logisticos(
         condiciones.append("  AND p.c_proveedor_primario IN :proveedores")
         params["proveedores"] = proveedores
         expanding.append("proveedores")
+    if abastecimiento is not None:
+        condiciones.append("  AND p.abastecimiento = :abastecimiento")
+        params["abastecimiento"] = abastecimiento
     if sucursales:
         condiciones.append("  AND p.c_sucu_empr IN :sucursales")
         params["sucursales"] = sucursales

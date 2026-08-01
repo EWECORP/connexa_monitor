@@ -28,11 +28,18 @@ st.set_page_config(
 )
 render_header("Exportacion de Datos Logisticos")
 st.caption(
-    "Parametros de productos vigentes con abastecimiento 3 para sucursales desde la 300. "
+    "Parametros logisticos de productos vigentes. "
     "Los filtros son opcionales y admiten seleccion multiple."
 )
 
 TTL = int(os.getenv("CACHE_TTL_SECONDS", "300"))
+ABASTECIMIENTOS = {
+    "Todos": None,
+    "0 — Entrega desde CD (E.Cd)": 0,
+    "1 — Entrega desde el proveedor (E.Prov)": 1,
+    "2 — Cross Docking (C.Docking)": 2,
+    "3 — Entrega desde QX (E.QX)": 3,
+}
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
@@ -58,9 +65,10 @@ def cargar_datos(
     compradores: tuple[int, ...],
     proveedores: tuple[int, ...],
     sucursales: tuple[int, ...],
+    abastecimiento: int | None,
 ) -> pd.DataFrame:
     consulta, params = construir_consulta_datos_logisticos(
-        compradores, proveedores, sucursales
+        compradores, proveedores, sucursales, abastecimiento
     )
     with get_diarco_engine().connect() as con:
         return pd.read_sql(consulta, con, params=params)
@@ -147,7 +155,7 @@ grupo_labels = {
 }
 
 st.subheader("Filtros")
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     compradores_elegidos = st.multiselect(
         "Compradores",
@@ -196,6 +204,12 @@ with col3:
         help="Si selecciona varios grupos, se incluye la union de sus sucursales.",
     )
 
+with col4:
+    abastecimiento_elegido = st.selectbox(
+        "Abastecimiento",
+        options=list(ABASTECIMIENTOS),
+        help="Todos no aplica ninguna restriccion de abastecimiento.",
+    )
 compradores_ids = tuple(sorted(comprador_labels[x] for x in compradores_elegidos))
 proveedores_ids = (
     ()
@@ -215,6 +229,7 @@ sucursales_ids = tuple(
         .tolist()
     )
 ) if grupos_ids else ()
+abastecimiento_id = ABASTECIMIENTOS[abastecimiento_elegido]
 
 if grupos_elegidos and not sucursales_ids:
     st.warning("Los grupos seleccionados no tienen sucursales con codigo numerico asociado.")
@@ -244,9 +259,13 @@ if ejecutar:
         compradores_ids,
         proveedores_ids,
         sucursales_ids,
+        abastecimiento_id,
     )
 
 filtros_aplicados = st.session_state.get("logistica_filtros")
+if filtros_aplicados is not None and len(filtros_aplicados) != 4:
+    filtros_aplicados = None
+
 if filtros_aplicados is None:
     st.info("Seleccione los filtros deseados y presione Generar reporte.")
     st.stop()
