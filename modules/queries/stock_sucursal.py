@@ -2,6 +2,69 @@
 # STOCK POR SUCURSAL
 # ============================================================
 
+from __future__ import annotations
+
+from sqlalchemy import bindparam, text
+
+
+SQL_SUCURSALES_STOCK = text("""
+SELECT
+    bs.codigo_sucursal,
+    COALESCE(NULLIF(TRIM(s.suc_nombre), ''), bs.codigo_sucursal::text) AS nombre_sucursal
+FROM src.base_stock_sucursal bs
+LEFT JOIN src.m_91_sucursales s
+  ON s.id_tienda = bs.codigo_sucursal::text
+GROUP BY bs.codigo_sucursal, s.suc_nombre
+ORDER BY bs.codigo_sucursal;
+""")
+
+
+SQL_PROVEEDORES_STOCK = text("""
+SELECT
+    bs.codigo_proveedor,
+    COALESCE(
+        NULLIF(TRIM(p.n_proveedor), ''),
+        bs.codigo_proveedor::text
+    ) AS nombre_proveedor
+FROM src.base_stock_sucursal bs
+LEFT JOIN src.m_10_proveedores p
+  ON p.c_proveedor = bs.codigo_proveedor
+WHERE bs.codigo_sucursal = :sucursal
+  AND bs.codigo_proveedor IS NOT NULL
+GROUP BY bs.codigo_proveedor, p.n_proveedor
+ORDER BY nombre_proveedor, bs.codigo_proveedor;
+""")
+
+
+def construir_consulta_stock(
+    sucursal: int,
+    proveedores: tuple[int, ...] = (),
+):
+    """Construye una consulta parametrizada sobre todo el stock de una sucursal."""
+    filtros = ["bs.codigo_sucursal = :sucursal"]
+    parametros: dict[str, object] = {"sucursal": int(sucursal)}
+
+    consulta = """
+        SELECT
+            bs.*,
+            p.n_proveedor AS nombre_proveedor
+        FROM src.base_stock_sucursal bs
+        LEFT JOIN src.m_10_proveedores p
+          ON p.c_proveedor = bs.codigo_proveedor
+        WHERE {filtros}
+        ORDER BY bs.codigo_proveedor, bs.codigo_articulo
+    """
+
+    if proveedores:
+        filtros.append("bs.codigo_proveedor IN :proveedores")
+        parametros["proveedores"] = tuple(int(codigo) for codigo in proveedores)
+
+    sentencia = text(consulta.format(filtros=" AND ".join(filtros)))
+    if proveedores:
+        sentencia = sentencia.bindparams(bindparam("proveedores", expanding=True))
+
+    return sentencia, parametros
+
 QRY_COMPPRADORES = """
 SELECT
     cod_comprador::int     AS cod_comprador,

@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "be3c09736b5fb6489ee3471e08c244c2b3b11d63",
-    "indexed_at": "2026-08-01T17:38:46Z",
-    "project": "E-ETL-connexa_monitor",
-    "nodes": 1272,
-    "edges": 5629,
-    "original_size": 4653056,
-    "compressed_size": 423866,
+    "commit": "07c027e5b3fc85051f489a810721f59a1c0631f7",
+    "indexed_at": "2026-08-31T15:43:03Z",
+    "project": "C-ETL-connexa_monitor",
+    "nodes": 1228,
+    "edges": 5643,
+    "original_size": 5767168,
+    "compressed_size": 921362,
     "compression_level": 3
 }
